@@ -621,25 +621,6 @@ static Types::AtomicQueue* resolvePriorityQueue(PriorityMemQueueHandle& handle,
 //! \param index: array index (not priority value)
 //! \param currentDepth: current queue depth
 //! \param queueId: queue ID for assertions
-static void updateHighWaterMark(std::atomic<U32>* highWaterMarks,
-                                FwSizeType index,
-                                U32 currentDepth,
-                                FwEnumStoreType queueId) {
-    FW_ASSERT(highWaterMarks != nullptr, queueId, static_cast<FwAssertArgType>(index));
-    U32 prevMax = highWaterMarks[index].load(std::memory_order_acquire);
-    // This is best effort, debug data only. So if retry count is exceeded, just give up
-    constexpr U32 MAX_CAS_RETRIES = 100;
-    for (U32 casRetries = 0; casRetries < MAX_CAS_RETRIES; ++casRetries) {
-        if (currentDepth <= prevMax) {
-            return;  // No update needed
-        }
-        if (highWaterMarks[index].compare_exchange_weak(prevMax, currentDepth, std::memory_order_release,
-                                                        std::memory_order_acquire)) {
-            return;  // Update succeeded
-        }
-    }
-}
-
 QueueInterface::Status PriorityMemQueue::send(const U8* buffer,
                                               FwSizeType size,
                                               FwQueuePriorityType priority,
