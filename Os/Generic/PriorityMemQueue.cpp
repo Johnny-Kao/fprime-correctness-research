@@ -676,12 +676,14 @@ QueueInterface::Status PriorityMemQueue::send(const U8* buffer,
         return QueueInterface::Status::FULL;
     }
 
-    // Update per-priority high water mark (use array index, not priority value)
-    I8 index = this->m_handle.getPriorityIndex(priority);
-    FW_ASSERT(index >= 0, this->m_handle.m_id, priority);
-    U32 currentDepth = static_cast<U32>(atomicQueue->getSize());
-    updateHighWaterMark(this->m_handle.m_highWaterMarks, static_cast<FwSizeType>(index), currentDepth,
-                        this->m_handle.m_id);
+    // EXPERIMENTAL: sample total occupancy after a successful enqueue.
+    // AtomicQueue::getSize() is not a linearizable snapshot under concurrent mutation.
+    // This fixes sequential aggregate accounting, but is NOT a verified SMP HWM implementation.
+    U32 totalDepth = 0;
+    for (FwSizeType i = 0; i < this->m_handle.m_numActivePriorities; ++i) {
+        totalDepth += static_cast<U32>(this->m_handle.m_atomicQueues[i].getSize());
+    }
+    updateHighWaterMark(this->m_handle.m_highWaterMarks, 0, totalDepth, this->m_handle.m_id);
 
     // Post semaphore to wake up receiver (if any)
     FW_ASSERT(this->m_handle.m_notEmptySem != nullptr, this->m_handle.m_id, priority);
@@ -785,20 +787,12 @@ FwSizeType PriorityMemQueue::getMessagesAvailable() const {
 }
 
 FwSizeType PriorityMemQueue::getMessageHighWaterMark() const {
-    // Return the maximum high water mark across all priorities
-    // MEMORY ORDERING: Use acquire to ensure visibility of latest HWM updates
-    U32 maxHwm = 0;
-    if (this->m_handle.m_highWaterMarks != nullptr) {
-        FW_ASSERT(this->m_handle.m_numActivePriorities <= Os::Generic::Queue::MAX_PRIORITIES,
-                  static_cast<FwAssertArgType>(this->m_handle.m_numActivePriorities));
-        for (FwSizeType i = 0; i < this->m_handle.m_numActivePriorities; ++i) {
-            U32 hwm = this->m_handle.m_highWaterMarks[i].load(std::memory_order_acquire);
-            if (hwm > maxHwm) {
-                maxHwm = hwm;
-            }
-        }
+    // Experimental total occupancy HWM, stored in slot 0.
+    // This must not be merged until the concurrent linearization invariant is established.
+    if (this->m_handle.m_highWaterMarks == nullptr) {
+        return 0;
     }
-    return static_cast<FwSizeType>(maxHwm);
+    return static_cast<FwSizeType>(this->m_handle.m_highWaterMarks[0].load(std::memory_order_acquire));
 }
 
 QueueHandle* PriorityMemQueue::getHandle() {
