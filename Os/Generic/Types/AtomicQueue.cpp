@@ -198,8 +198,12 @@ bool AtomicQueue::enqueueInternal(const U8* buffer, FwSizeType size) {
                 if (this->m_sharedOccupancy != nullptr) {
                     const U32 depth = this->m_sharedOccupancy->fetch_add(1, std::memory_order_seq_cst) + 1;
                     U32 peak = this->m_sharedHighWaterMark->load(std::memory_order_seq_cst);
+                    // Strong CAS cannot fail spuriously. Every failed attempt implies
+                    // another successful increase of this monotonic peak. Because
+                    // the peak is bounded by the configured queue capacity, the
+                    // number of failed attempts is bounded by that capacity.
                     while (peak < depth &&
-                           !this->m_sharedHighWaterMark->compare_exchange_weak(
+                           !this->m_sharedHighWaterMark->compare_exchange_strong(
                                peak, depth, std::memory_order_seq_cst, std::memory_order_seq_cst)) {
                     }
                 }
