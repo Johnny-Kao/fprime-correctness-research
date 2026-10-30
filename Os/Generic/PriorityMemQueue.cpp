@@ -67,6 +67,8 @@ void PriorityMemQueueHandle::init() {
         }
     }
 
+    this->m_totalOccupancy.store(0, std::memory_order_relaxed);
+
     // Initialize high water marks to zero if array is allocated
     if (this->m_highWaterMarks != nullptr) {
         for (FwSizeType i = 0; i < this->m_numActivePriorities; ++i) {
@@ -525,6 +527,7 @@ QueueInterface::Status PriorityMemQueue::createPriorityQueue(FwQueuePriorityType
 
     // Create the AtomicQueue with the specified parameters
     atomicQueue->create(numMsgs, maxMsgSize, allocator, allocatorId);
+    atomicQueue->setOccupancyTracking(&this->m_handle.m_totalOccupancy, &this->m_handle.m_highWaterMarks[0]);
 
     // Check if creation was successful (both capacity and slots must be initialized)
     if (!atomicQueue->isCreated()) {
@@ -676,15 +679,6 @@ QueueInterface::Status PriorityMemQueue::send(const U8* buffer,
         return QueueInterface::Status::FULL;
     }
 
-    // EXPERIMENTAL: sample total occupancy after a successful enqueue.
-    // AtomicQueue::getSize() is not a linearizable snapshot under concurrent mutation.
-    // This fixes sequential aggregate accounting, but is NOT a verified SMP HWM implementation.
-    U32 totalDepth = 0;
-    for (FwSizeType i = 0; i < this->m_handle.m_numActivePriorities; ++i) {
-        totalDepth += static_cast<U32>(this->m_handle.m_atomicQueues[i].getSize());
-    }
-    updateHighWaterMark(this->m_handle.m_highWaterMarks, 0, totalDepth, this->m_handle.m_id);
-
     // Post semaphore to wake up receiver (if any)
     FW_ASSERT(this->m_handle.m_notEmptySem != nullptr, this->m_handle.m_id, priority);
     Os::CountingSemaphoreInterface::Status semStatus = this->m_handle.m_notEmptySem->post();
@@ -787,8 +781,7 @@ FwSizeType PriorityMemQueue::getMessagesAvailable() const {
 }
 
 FwSizeType PriorityMemQueue::getMessageHighWaterMark() const {
-    // Experimental total occupancy HWM, stored in slot 0.
-    // This must not be merged until the concurrent linearization invariant is established.
+    // Aggregate occupancy is accounted before enqueue publication and before dequeue slot release.
     if (this->m_handle.m_highWaterMarks == nullptr) {
         return 0;
     }
