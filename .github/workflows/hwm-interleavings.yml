@@ -1,0 +1,16 @@
+name: HWM interleaving model (research only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  counterexamples:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate known scan-based HWM counterexamples
+        run: python3 research/hwm_scan_interleavings.py
