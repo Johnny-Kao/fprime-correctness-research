@@ -2207,3 +2207,53 @@ TEST_F(PriorityMemQueueTestFixture, HighWaterMarkConcurrent) {
 
     queue.teardown();
 }
+
+// Re-enable should notify a blocked reader when previously queued work becomes eligible.
+TEST_F(PriorityMemQueueTestFixture, ReenablePriorityWakesBlockedReceiver) {
+    PriorityMemQueueTestHelper::resetConfig();
+    Os::Generic::PriorityMemQueue::QueuePriorityConfig priorities[] = {{0, 64, 4}, {1, 64, 4}};
+    Os::Generic::PriorityMemQueue::QueueConfig config = {204, 2, priorities};
+    Os::Generic::PriorityMemQueue::configure(&config, 1, false,
+                                             Fw::MemoryAllocation::MemoryAllocatorType::OS_GENERIC_PRIORITY_QUEUE);
+    Os::Generic::PriorityMemQueue queue;
+    Fw::String name("ReenableWakeQueue");
+    ASSERT_EQ(Os::QueueInterface::Status::OP_OK, queue.create(204, name, 8, 64));
+
+    U8 queuedData[32] = {};
+    queuedData[0] = 0x42;
+    ASSERT_EQ(Os::QueueInterface::Status::OP_OK,
+              queue.send(queuedData, sizeof(queuedData), 1, Os::QueueInterface::BlockingType::NONBLOCKING));
+    auto* handle = static_cast<Os::Generic::PriorityMemQueueHandle*>(queue.getHandle());
+    handle->disablePriority(1);
+
+    BlockingReceiveContext ctx;
+    ctx.queue = &queue;
+    Os::Task receiverTask;
+    Os::Task::Arguments args(Fw::String("ReenableRecvTask"), blockingReceiveTask, &ctx,
+                             Os::Task::TASK_PRIORITY_DEFAULT, Os::Task::TASK_DEFAULT);
+    ASSERT_EQ(Os::Task::Status::OP_OK, receiverTask.start(args));
+
+    for (int i = 0; i < 50 && !ctx.started; ++i) {
+        Os::Task::delay(Fw::TimeInterval(0, 1000));
+    }
+    ASSERT_TRUE(ctx.started);
+    Os::Task::delay(Fw::TimeInterval(0, 10000));
+    ASSERT_FALSE(ctx.messageReceived);
+    handle->enablePriority(1);
+
+    for (int i = 0; i < 50 && !ctx.messageReceived; ++i) {
+        Os::Task::delay(Fw::TimeInterval(0, 1000));
+    }
+    const bool receivedAfterEnable = ctx.messageReceived;
+    if (!receivedAfterEnable) {
+        U8 rescueData[1] = {0x99};
+        ASSERT_EQ(Os::QueueInterface::Status::OP_OK,
+                  queue.send(rescueData, sizeof(rescueData), 0, Os::QueueInterface::BlockingType::NONBLOCKING));
+    }
+    ASSERT_EQ(Os::Task::Status::OP_OK, receiverTask.join());
+    EXPECT_TRUE(receivedAfterEnable) << "Re-enabling priority did not notify receiver";
+    EXPECT_EQ(Os::QueueInterface::Status::OP_OK, ctx.status);
+    EXPECT_EQ(1, ctx.receivedPriority);
+    EXPECT_EQ(0x42, ctx.receivedData[0]);
+    queue.teardown();
+}
