@@ -2201,6 +2201,40 @@ TEST_F(PriorityMemQueueTestFixture, HighWaterMarkConcurrent) {
     queue.teardown();
 }
 
+// Concurrent producers with no consumers must retain the exact aggregate peak.
+// Every successful enqueue remains resident, so the final total is an exact oracle.
+TEST_F(PriorityMemQueueTestFixture, AggregateHighWaterMarkConcurrentProducers) {
+    Os::Generic::PriorityMemQueue::QueuePriorityConfig priorities[] = {{0, 64, 32}, {1, 64, 32}, {2, 64, 32}};
+    Os::Generic::PriorityMemQueue::QueueConfig config = {205, 3, priorities};
+    Os::Generic::PriorityMemQueue::configure(&config, 1, false,
+                                             Fw::MemoryAllocation::MemoryAllocatorType::OS_GENERIC_PRIORITY_QUEUE);
+    Os::Generic::PriorityMemQueue queue;
+    Fw::String name("AggregateConcurrentQueue");
+    ASSERT_EQ(Os::QueueInterface::Status::OP_OK, queue.create(205, name, 96, 64));
+
+    std::atomic<U32> successfulSends{0};
+    auto producer = [&](FwQueuePriorityType priority) {
+        U8 data[8] = {};
+        for (U32 i = 0; i < 32; ++i) {
+            if (queue.send(data, sizeof(data), priority, Os::QueueInterface::BlockingType::NONBLOCKING) ==
+                Os::QueueInterface::Status::OP_OK) {
+                successfulSends.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+    };
+    std::vector<std::thread> threads;
+    for (FwQueuePriorityType p = 0; p < 3; ++p) {
+        threads.emplace_back(producer, p);
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    ASSERT_EQ(96, successfulSends.load());
+    EXPECT_EQ(96, queue.getMessagesAvailable());
+    EXPECT_EQ(96, queue.getMessageHighWaterMark());
+    queue.teardown();
+}
+
 // HWM must reflect the peak total occupancy, not the maximum of the per-priority peaks.
 TEST_F(PriorityMemQueueTestFixture, AggregateHighWaterMarkAcrossPriorities) {
     Os::Generic::PriorityMemQueue::QueuePriorityConfig priorities[] = {{0, 64, 4}, {1, 64, 4}};
