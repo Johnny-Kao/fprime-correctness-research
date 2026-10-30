@@ -1,0 +1,317 @@
+// ======================================================================
+// \title  DpCatalog.hpp
+// \author tcanham
+// \brief  hpp file for DpCatalog component implementation class
+// ======================================================================
+
+#ifndef Svc_DpCatalog_HPP
+#define Svc_DpCatalog_HPP
+
+#include "Svc/DpCatalog/DpCatalogComponentAc.hpp"
+#include "Svc/DpCatalog/DpRecordSerializableAc.hpp"
+
+#include <Fw/DataStructures/ExternalArray.hpp>
+#include <Fw/DataStructures/RedBlackTreeSet.hpp>
+#include <Fw/Deprecate.hpp>
+#include <Fw/Types/MemAllocator.hpp>
+#include <limits>
+
+#include <Fw/Types/FileNameString.hpp>
+#include <config/DpCatalogCfg.hpp>
+#include <config/DpCfg.hpp>
+
+#define DIRECTORY_DELIMITER "/"
+
+namespace Svc {
+
+class DpCatalog final : public DpCatalogComponentBase {
+    friend class DpCatalogTester;
+
+  public:
+    // ----------------------------------------------------------------------
+    // Component construction and destruction
+    // ----------------------------------------------------------------------
+
+    /// @brief DpCatalog constructor
+    /// @param compName component name
+    DpCatalog(const char* const compName  //!< The component name
+    );
+
+    /// @brief DpCatalog destructor
+    ~DpCatalog() = default;
+
+    /// @brief Configure the DpCatalog
+    /// @param directories array of directories to scan; at most DP_MAX_DIRECTORIES entries
+    /// @param stateFile file to store transmit state. Provide a zero-length string if no state tracking
+    /// @param memId  memory ID for allocator
+    /// @param allocator Allocator to supply memory for catalog.
+    ///        Instance must survive for shutdown to use for reclaiming memory
+    void configure(const Fw::ExternalArray<Fw::FileNameString>& directories,
+                   Fw::FileNameString& stateFile,
+                   FwEnumStoreType memId,
+                   Fw::MemAllocator& allocator);
+
+    /// @brief Configure the DpCatalog
+    /// @param directories list of directories to scan
+    /// @param numDirs number of supplied directories
+    /// @param stateFile file to store transmit state. Provide a zero-length string if no state tracking
+    /// @param memId  memory ID for allocator
+    /// @param allocator Allocator to supply memory for catalog.
+    ///        Instance must survive for shutdown to use for reclaiming memory
+    DEPRECATED(void configure(Fw::FileNameString directories[DP_MAX_DIRECTORIES],
+                              FwSizeType numDirs,
+                              Fw::FileNameString& stateFile,
+                              FwEnumStoreType memId,
+                              Fw::MemAllocator& allocator),
+               "Use configure(const Fw::ExternalArray<Fw::FileNameString>& directories, ...) instead");
+
+    // @brief clean up component.
+    // Deallocates memory.
+    void shutdown();
+
+  private:
+    // ----------------------------------------------------------------------
+    // Handler implementations for user-defined typed input ports
+    // ----------------------------------------------------------------------
+
+    //! Handler implementation for fileDone
+    //!
+    //! File Downlink send complete port
+    void fileDone_handler(FwIndexType portNum,  //!< The port number
+                          const Svc::SendFileResponse& resp) override;
+
+    //! Handler implementation for pingIn
+    //!
+    //! Ping input port
+    void pingIn_handler(FwIndexType portNum,  //!< The port number
+                        U32 key               //!< Value to return to pinger
+                        ) override;
+
+    //! Handler implementation for addToCat
+    //!
+    //! DP Writer Add File to Cat
+    void addToCat_handler(FwIndexType portNum,             //!< The port number
+                          const Fw::StringBase& fileName,  //!< The file name
+                          FwDpPriorityType priority,       //!< The priority
+                          FwSizeType size                  //!< The file size
+                          ) override;
+
+  private:
+    // ----------------------------------------------------------------------
+    // Handler implementations for commands
+    // ----------------------------------------------------------------------
+
+    //! Handler implementation for command BUILD_CATALOG
+    //!
+    //! Build catalog from data product directory
+    void BUILD_CATALOG_cmdHandler(FwOpcodeType opCode,  //!< The opcode
+                                  U32 cmdSeq            //!< The command sequence number
+                                  ) override;
+
+    //! Handler implementation for command START_XMIT_CATALOG
+    //!
+    //! Start transmitting catalog
+    void START_XMIT_CATALOG_cmdHandler(
+        FwOpcodeType opCode,   //!< The opcode
+        U32 cmdSeq,            //!< The command sequence number
+        const Fw::Wait& wait,  //!< have START_XMIT command wait for catalog to complete transmitting
+        bool remainActive      //!< should the catalog resume transmission when Dps are added at runtime
+        ) override;
+
+    //! Handler implementation for command START_XMIT_CATALOG_WITH_PRIORITY
+    //!
+    //! Start transmitting the catalog products inside a priority range
+    void START_XMIT_CATALOG_WITH_PRIORITY_cmdHandler(
+        FwOpcodeType opCode,             //!< The opcode
+        U32 cmdSeq,                      //!< The command sequence number
+        const Fw::Wait& wait,            //!< have the command wait for the in-range products to finish transmitting
+        bool remainActive,               //!< resume transmission when an in-range DP is added at runtime
+        FwDpPriorityType startPriority,  //!< lowest priority value (most urgent) to transmit, inclusive
+        FwDpPriorityType endPriority     //!< highest priority value (least urgent) to transmit, inclusive
+        ) override;
+
+    //! Handler implementation for command STOP_XMIT_CATALOG
+    //!
+    //! Stop transmitting catalog
+    void STOP_XMIT_CATALOG_cmdHandler(FwOpcodeType opCode,  //!< The opcode
+                                      U32 cmdSeq            //!< The command sequence number
+                                      ) override;
+
+    //! Handler implementation for command CLEAR_CATALOG
+    //!
+    //! clear existing catalog
+    void CLEAR_CATALOG_cmdHandler(FwOpcodeType opCode,  //!< The opcode
+                                  U32 cmdSeq            //!< The command sequence number
+                                  ) override;
+
+    // ----------------------------------
+    // Private data structures
+    // ----------------------------------
+
+    struct DpStateEntry {
+        friend class DpCatalogTester;
+        FwIndexType dir;  //!< index to m_directories entry that has directory name where DP exists
+        DpRecord record;  //!< data product metadata
+
+        /// @brief insert an entry into the sorted list; if it exists, update the metadata
+        /// @param left an entry to compare
+        /// @param right other entry to compare
+        /// @return -1 if left is higher priority, 0 if equal, and 1 if right is higher priority
+        static I8 compareEntries(const DpStateEntry& left, const DpStateEntry& right);
+
+        bool operator==(const DpStateEntry& other) const;
+        bool operator!=(const DpStateEntry& other) const;
+        bool operator>(const DpStateEntry& other) const;
+        bool operator<(const DpStateEntry& other) const;
+    };
+
+    struct DpDstateFileEntry {
+        bool used;     //!< if the entry is used
+        bool visited;  //!< used for state file state; indicates that the entry was found in the search of current data
+                       //!< products
+        DpStateEntry entry;  //!< state entry from file
+    };
+
+    // ----------------------------------
+    // Private helpers
+    // ----------------------------------
+
+    //! Status of a processFile() call
+    enum class ProcessFileStatus {
+        SUCCESS,  //!< file added to the catalog
+        FAILED,   //!< file could not be processed; continue with the next file
+        QUIT      //!< catalog is full; stop processing files
+    };
+
+    /// @brief determine in which managed directory a file resides
+    /// @param fullFile full path to file to be processed
+    /// @return directory index in m_directories; DP_MAX_DIRECTORIES if not in a managed dir
+    FwSizeType determineDirectory(const Fw::String& fullFile);
+
+    /// @brief add entry to sorted list and state file; called on each file in it & upon addToCat
+    /// @param fullFile full path to file to be processed
+    /// @param dir directory index in m_directories
+    /// @return QUIT to stop processing, FAILED for failure but continue, SUCCESS for success
+    ProcessFileStatus processFile(const Fw::String& fullFile, FwSizeType dir);
+
+    /// @brief insert an entry into the sorted catalog; if it exists, update the metadata
+    /// @param entry new entry
+    /// @return true if inserted successfully, false if the tree insert failed
+    bool insertEntry(DpStateEntry& entry);
+
+    /// @brief reset the catalog
+    void resetCatalog();
+
+    /// #brief fill  the binary tree from DP files
+    Fw::CmdResponse fillBinaryTree();
+
+    /// @brief reset the state file data
+    void resetStateFileData();
+
+    /// @brief get file state from the stored state file
+    /// @param entry entry to update from file state
+    void getFileState(DpStateEntry& entry);
+
+    /// @brief prune the state file data and write the remaining entries back
+    void pruneAndWriteStateFile();
+
+    /// @brief load state data from file
+    Fw::CmdResponse loadStateFile();
+
+    /// @brief get file state from the stored state file
+    /// @param entry entry to add to state file
+    void appendFileState(const DpStateEntry& entry);
+
+    /// @brief send the next entry to file downlink
+    void sendNextEntry();
+
+    /// @brief find the next entry in the catalog inside the active priority range
+    /// @param entry entry to return
+    /// @return true if an in-range entry was found, false if no more entries are in range
+    bool findNextEntry(DpStateEntry& entry);
+
+    /// @brief check to see if component successfully initialized
+    /// @return bool if it was initialized
+    bool checkInit();
+
+    /// @brief build catalog. Shared between command and port
+    /// @return command response for pass/fail
+    Fw::CmdResponse doCatalogBuild();
+
+    /// @brief handle a START_XMIT_CATALOG or START_XMIT_CATALOG_WITH_PRIORITY command: validate the range,
+    ///        then start transmitting and send (or arm, for a waited command) the command response
+    /// @param opCode the command opcode
+    /// @param cmdSeq the command sequence number
+    /// @param wait whether the command response waits for the transmission to complete
+    /// @param remainActive whether runtime additions resume transmission
+    /// @param startPriority lowest priority value to transmit, inclusive
+    /// @param endPriority highest priority value to transmit, inclusive
+    void startXmitCmd(FwOpcodeType opCode,
+                      U32 cmdSeq,
+                      const Fw::Wait& wait,
+                      bool remainActive,
+                      FwDpPriorityType startPriority,
+                      FwDpPriorityType endPriority);
+
+    /// @brief start transmitting catalog. Called only by startXmitCmd, which validates the range
+    /// @param startPriority lowest priority value to transmit, inclusive
+    /// @param endPriority highest priority value to transmit, inclusive; must be >= startPriority
+    /// @return command response for pass/fail
+    Fw::CmdResponse doCatalogXmit(FwDpPriorityType startPriority, FwDpPriorityType endPriority);
+
+    /// @brief send a cmdResponse to the start xmit cmd if user waited
+    /// @param response the command response for pass/fail
+    void dispatchWaitedResponse(Fw::CmdResponse response);
+
+    /// @brief abandon the transmit: clear both transmit flags and answer a waited START_XMIT_CATALOG
+    /// @param response the command response for the waited command
+    void abortXmit(Fw::CmdResponse response);
+
+    // ----------------------------------
+    // Private data
+    // ----------------------------------
+    bool m_initialized = false;  //!< set when the component has been initialized
+
+    Fw::RedBlackTreeSet<DpStateEntry, DP_MAX_FILES> m_dpCatalog;  //!< The sorted catalog of DPs
+    DpStateEntry m_currentXmitEntry;                              //!< Entry currently being transmitted
+    bool m_hasCurrentXmit = false;                                //!< Whether m_currentXmitEntry is valid
+    U32 m_currXmitContext = 0;  //!< FileDownlink context of the send in flight, echoed back in fileDone
+
+    FwSizeType m_numDpSlots = 0;  //!< Stores the available number of record slots.
+
+    Fw::FileNameString m_directories[DP_MAX_DIRECTORIES];  //!< List of supplied DP directories
+    FwSizeType m_numDirectories = 0;                       //!< number of supplied directories
+
+    Fw::FileNameString m_stateFile;                //!< file to store transmit state
+    DpDstateFileEntry* m_stateFileData = nullptr;  //!< DP state loaded from file
+    FwSizeType m_stateFileEntries = 0;             //!< size of state file data
+
+    FwSizeType m_memSize = 0;                 //!< size of allocated buffer
+    void* m_memPtr = nullptr;                 //!< stored for shutdown
+    FwEnumStoreType m_allocatorId = 0;        //!< stored for shutdown
+    Fw::MemAllocator* m_allocator = nullptr;  //!< stored for shutdown
+
+    bool m_catalogBuilt = false;            //!< catalog build is complete (can add DPs at runtime)
+    bool m_xmitInProgress = false;          //!< set if DP files are in the process of being sent
+    Fw::FileNameString m_currXmitFileName;  //!< current file being transmitted
+    bool m_xmitCmdWait = false;             //!< true if waiting for transmission complete to complete xmit command
+    U64 m_xmitBytes = 0;                    //!< bytes transmitted for downlink session
+    FwOpcodeType m_xmitOpCode = 0;          //!< stored xmit command opcode
+    U32 m_xmitCmdSeq = 0;                   //!< stored command sequence id
+
+    U32 m_pendingFiles = 0;    //!< Pending Files to Transmit
+    U64 m_pendingDpBytes = 0;  //!< Pending Bytes to Transmit
+
+    bool m_remainActive = false;  //!< Does the DpCat resume transmission when
+                                  //!< a runtime Dp is received after
+                                  //!< the in-range catalog is sent
+
+    FwDpPriorityType m_xmitStartPriority = 0;  //!< Lowest priority value sent by the active/last transmit command
+    FwDpPriorityType m_xmitEndPriority =
+        std::numeric_limits<FwDpPriorityType>::max();  //!< Highest priority value sent by the active/last
+                                                       //!< transmit command
+};
+
+}  // namespace Svc
+
+#endif

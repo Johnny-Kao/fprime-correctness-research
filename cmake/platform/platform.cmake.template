@@ -1,0 +1,94 @@
+####
+# platform.cmake.template:
+#
+# This file acts as a template for the fprime platform files used by the CMake system.
+# These files specify build flags, compiler directives, and must register a platform
+# configuration module supplying "PlatformTypes.fpp" and "PlatformTypes.h".
+#
+# Follow all the steps in this template to create a platform file. Ensure
+# to remove the platform-failsafe (step 1) and fill in all <SOMETHING> tags.
+#
+# **Note:** If the user desires to set compiler paths, and other CMake toolchain settings, a
+#           toolchain file should be constructed. See: toolchain.md
+#
+# ### Platform File Loading ###
+#
+# The user rarely needs to specify a platform file directly. It will be specified based on the data
+# in the chosen Toolchain file, or by the CMake system itself. However, if the user wants to control
+# which platform file is used, the load is specified by the following rules:
+#
+# If the user specifies a CMake Toolchain file, then the platform file `${CMAKE_SYSTEM_NAME}.cmake`
+# will be used. `${CMAKE_SYSTEM_NAME}` is set in the toolchain file and is typically set to a name like Linux, or Darwin
+# but may be more specific if required.
+#
+# Otherwise, CMake sets the `${CMAKE_SYSTEM_NAME}` automatically to be that of the Host system, and that platform
+# will be used. e.g. when building on Linux, the platform file "Linux.cmake" will be used.
+#
+# ### Filling In CMake Platform by Example ###
+#
+# F prime platform files are used to set F prime specific settings. This allows the user to control
+# some aspects of the F prime build at the top-level. This means registering the platform configuration
+# module (platform types, chosen implementations, compiler definitions for the platform), threading
+# libraries, etc. The bare-minimum platform file should register a configuration module supplying
+# "PlatformTypes.fpp" and "PlatformTypes.h" and choosing an implementation for every Os package, and
+# should find a threading library if using active components with OS supported threads. This can be
+# done with the following lines:
+#
+# ```
+# FIND_PACKAGE ( Threads REQUIRED )
+# add_fprime_subdirectory("${FPRIME_FRAMEWORK_PATH}/cmake/platform/unix/Platform/")
+# ```
+#
+# **Note:** much of this is done already in Linux.cmake and Darwin.cmake. If using a unix-like
+#           system, see those files for reference. See docs/user-manual/build-system/configuration.md
+#           for how platform configuration modules are assembled and overridden by projects.
+#
+# **Note:** if copying the template, delete the message with FATAL_ERROR line. This is a fail-safe
+#           to prevent a raw-copy from being treated as a valid toolchain file.
+####
+
+## STEP 1: DELETE the following fail-safe line
+message(FATAL_ERROR "\n[F-PRIME] Platform must be filled before use.\n")
+
+## STEP 2: Specify the OS type compile definition i.e. LINUX or DARWIN. This is attached to the platform
+#          configuration module registered in STEP 5.
+set(PLATFORM_OS_TYPE_DEFINITION -DTGT_OS_TYPE_<PLATFORM-NAME>)
+
+# STEP 3: Specify CMAKE C and CXX compile flags. DO NOT clear existing flags
+set(CMAKE_C_FLAGS
+  "${CMAKE_C_FLAGS} <ADD-C-FLAGS-HERE>"
+)
+set(CMAKE_CXX_FLAGS
+  "${CMAKE_CXX_FLAGS} <ADD-CXX-FLAGS-HERE>"
+)
+
+# STEP 4: Specify that a thread package should be searched in the toolchain
+#         directory. NOTE: when running without threads, remove this line.
+#         Here there is a check for the using baremetal scheduler
+if (NOT DEFINED FPRIME_USE_BAREMETAL_SCHEDULER)
+   set(FPRIME_USE_BAREMETAL_SCHEDULER OFF)
+   message(STATUS "Requiring thread library")
+   FIND_PACKAGE ( Threads REQUIRED )
+endif()
+
+# STEP 5: Register the platform configuration. A platform supplies "PlatformTypes.fpp" and
+#         "PlatformTypes.h" from a configuration module and chooses an implementation for every Os
+#         package. Each module is marked GLOBAL_IMPLICIT_DEPENDENCY so that every module in the build
+#         receives the platform types and, for the module below, the OS type compile definition.
+#         Note: Typically, the unix platform directory is a good default, as it grabs standard
+#         types from <cstdint> and chooses the POSIX implementations. Additional platform-specific
+#         choices and definitions are then registered in a second, INTERFACE-only configuration
+#         module as done below (see Linux.cmake). Otherwise, write a directory equivalent to
+#         cmake/platform/unix/Platform/ for the platform. The configuration directory must not sit
+#         directly under an include root (project, framework, or library root). Remove the
+#         CHOOSES_IMPLEMENTATIONS directive below if this platform adds no choices beyond
+#         unix/Platform: a directive with an empty list is a generate-time error.
+add_fprime_subdirectory("${FPRIME_FRAMEWORK_PATH}/cmake/platform/unix/Platform/")
+register_fprime_config(
+        Platform<PLATFORM-NAME>
+    INTERFACE
+    CHOOSES_IMPLEMENTATIONS
+        <OS-IMPLEMENTATIONS-SPECIFIC-TO-THIS-PLATFORM>
+    GLOBAL_IMPLICIT_DEPENDENCY
+)
+target_compile_definitions(Platform<PLATFORM-NAME> INTERFACE ${PLATFORM_OS_TYPE_DEFINITION})

@@ -1,0 +1,44 @@
+// ======================================================================
+// \title  SpacePacketFramerTestMain.cpp
+// \author thomas-bc
+// \brief  cpp file for SpacePacketFramer component test main function
+// ======================================================================
+
+#include "STest/Random/Random.hpp"
+#include "SpacePacketFramerTester.hpp"
+
+TEST(SpacePacketFramer, testComStatusPassthrough) {
+    Svc::Ccsds::SpacePacketFramerTester tester;
+    tester.testComStatusPassthrough();
+}
+
+TEST(SpacePacketFramer, testDataReturnPassthrough) {
+    Svc::Ccsds::SpacePacketFramerTester tester;
+    tester.testDataReturnPassthrough();
+}
+
+TEST(SpacePacketFramer, testNominalFraming) {
+    Svc::Ccsds::SpacePacketFramerTester tester;
+    tester.testNominalFraming();
+}
+
+TEST(SpacePacketFramer, OversizedAllocatorBufferIsTrimmed) {
+    Svc::Ccsds::SpacePacketFramerTester tester;
+    tester.testOversizedAllocatorBufferIsTrimmed();
+}
+
+TEST(SpacePacketFramer, InvalidAllocationEmitsComStatus) {
+    Svc::Ccsds::SpacePacketFramerTester tester;
+    tester.testInvalidAllocationEmitsComStatus();
+}
+
+TEST(SpacePacketFramer, UndersizedAllocationEmitsComStatus) {
+    Svc::Ccsds::SpacePacketFramerTester tester;
+    tester.testUndersizedAllocationEmitsComStatus();
+}
+
+int main(int argc, char** argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    STest::Random::seed();
+    return RUN_ALL_TESTS();
+}

@@ -1,0 +1,1428 @@
+// ======================================================================
+// \title  ComQueue.hpp
+// \author vbai
+// \brief  cpp file for ComQueue test harness implementation class
+// ======================================================================
+
+#include "ComQueueTester.hpp"
+#include "Fw/Types/MallocAllocator.hpp"
+#include "Os/Task.hpp"
+using namespace std;
+
+Fw::MallocAllocator mallocAllocator;
+#define INSTANCE 0
+#define MAX_HISTORY_SIZE 100
+#define QUEUE_DEPTH 100
+
+namespace Svc {
+
+// ----------------------------------------------------------------------
+// Construction and destruction
+// ----------------------------------------------------------------------
+
+ComQueueTester ::ComQueueTester() : ComQueueGTestBase("Tester", MAX_HISTORY_SIZE), component("ComQueue") {
+    this->initComponents();
+    this->connectPorts();
+}
+
+ComQueueTester ::~ComQueueTester() {
+    this->component.deinit();
+}
+
+void ComQueueTester ::dispatchAll() {
+    while (this->component.m_queue.getMessagesAvailable() > 0) {
+        this->component.doDispatch();
+    }
+}
+
+void ComQueueTester ::configure() {
+    ComQueue::QueueConfigurationTable configurationTable;
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 3;
+    }
+    component.configure(configurationTable, 0, mallocAllocator);
+}
+
+void ComQueueTester ::sendByQueueNumber(Fw::Buffer& buffer,
+                                        FwIndexType queueNum,
+                                        FwIndexType& portNum,
+                                        QueueType& queueType) {
+    if (queueNum < ComQueue::COM_PORT_COUNT) {
+        Fw::ComBuffer comBuffer(buffer.getData(), buffer.getSize());
+        portNum = queueNum;
+        queueType = QueueType::COM_QUEUE;
+        invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
+    } else {
+        portNum = queueNum - ComQueue::COM_PORT_COUNT;
+        queueType = QueueType::BUFFER_QUEUE;
+        invoke_to_bufferQueueIn(portNum, buffer);
+    }
+}
+
+void ComQueueTester ::emitOne() {
+    Fw::Success state = Fw::Success::SUCCESS;
+    invoke_to_comStatusIn(0, state);
+    dispatchAll();
+}
+
+void ComQueueTester ::emitOneAndCheck(FwIndexType expectedIndex, U8* expectedData, FwSizeType expectedSize) {
+    emitOne();
+    // Check that the data buffers are identical (size + data)
+    Fw::Buffer emittedBuffer = this->fromPortHistory_dataOut->at(expectedIndex).data;
+    ASSERT_EQ(expectedSize, emittedBuffer.getSize());
+    for (FwSizeType i = 0; i < expectedSize; i++) {
+        ASSERT_EQ(emittedBuffer.getData()[i], expectedData[i]);
+    }
+}
+
+void ComQueueTester::assertZeroDropTelemetry() {
+    ComQueueIngressDrops zeroComIngress;
+    BuffQueueIngressDrops zeroBuffIngress;
+    ComQueueManagedDrops zeroComManaged;
+    BuffQueueManagedDrops zeroBuffManaged;
+    for (U32 i = 0; i < zeroComIngress.SIZE; i++) {
+        zeroComIngress[i] = 0;
+    }
+    for (U32 i = 0; i < zeroBuffIngress.SIZE; i++) {
+        zeroBuffIngress[i] = 0;
+    }
+    for (U32 i = 0; i < zeroComManaged.SIZE; i++) {
+        zeroComManaged[i] = 0;
+    }
+    for (U32 i = 0; i < zeroBuffManaged.SIZE; i++) {
+        zeroBuffManaged[i] = 0;
+    }
+    invoke_to_run(0, 0);
+    this->dispatchAll();
+    ASSERT_TLM_comIngressDropped_SIZE(1);
+    ASSERT_TLM_comIngressDropped(0, zeroComIngress);
+    ASSERT_TLM_buffIngressDropped_SIZE(1);
+    ASSERT_TLM_buffIngressDropped(0, zeroBuffIngress);
+    ASSERT_TLM_comManagedDropped_SIZE(1);
+    ASSERT_TLM_comManagedDropped(0, zeroComManaged);
+    ASSERT_TLM_buffManagedDropped_SIZE(1);
+    ASSERT_TLM_buffManagedDropped(0, zeroBuffManaged);
+}
+
+// ----------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------
+
+void ComQueueTester ::testQueueSend() {
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer comBuffer(&data[0], sizeof(data));
+    Fw::Buffer buffer(&data[0], sizeof(data));
+    configure();
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::COM_PORT_COUNT; portNum++) {
+        invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
+        emitOneAndCheck(portNum, comBuffer.getBuffAddr(), comBuffer.getSize());
+    }
+    clearFromPortHistory();
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::BUFFER_PORT_COUNT; portNum++) {
+        invoke_to_bufferQueueIn(portNum, buffer);
+        emitOneAndCheck(portNum, buffer.getData(), buffer.getSize());
+        ASSERT_from_bufferReturnOut(portNum, buffer);
+    }
+    ASSERT_from_bufferReturnOut_SIZE(ComQueue::BUFFER_PORT_COUNT);
+    clearFromPortHistory();
+    component.cleanup();
+}
+
+void ComQueueTester ::testQueueFlush() {
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer comBuffer(&data[0], sizeof(data));
+    Fw::Buffer buffer(&data[0], sizeof(data));
+    configure();
+
+    // Iterate over queues dispatch and flush each
+    for (FwIndexType portNum = 0; portNum < ComQueue::COM_PORT_COUNT; portNum++) {
+        invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
+        this->sendCmd_FLUSH_QUEUE(0, 0, QueueType::COM_QUEUE, portNum);
+        this->dispatchAll();
+        ASSERT_from_dataOut_SIZE(0);
+    }
+    clearFromPortHistory();
+    // Similar for buffer queues but the buffer should be returned
+    for (FwIndexType portNum = 0; portNum < ComQueue::BUFFER_PORT_COUNT; portNum++) {
+        invoke_to_bufferQueueIn(portNum, buffer);
+        this->sendCmd_FLUSH_QUEUE(0, 0, QueueType::BUFFER_QUEUE, portNum);
+        this->dispatchAll();
+        ASSERT_from_bufferReturnOut(portNum, buffer);
+        ASSERT_from_dataOut_SIZE(0);
+    }
+    this->emitOne();  // Ensure that nothing is emitted
+    ASSERT_from_bufferReturnOut_SIZE(ComQueue::BUFFER_PORT_COUNT);
+    this->assertZeroDropTelemetry();
+    clearFromPortHistory();
+    component.cleanup();
+}
+
+void ComQueueTester ::testQueueFlushAll() {
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer comBuffer(&data[0], sizeof(data));
+    Fw::Buffer buffer(&data[0], sizeof(data));
+    configure();
+
+    // Iterate over queues and queue a message to each
+    for (FwIndexType portNum = 0; portNum < ComQueue::COM_PORT_COUNT; portNum++) {
+        invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
+        this->dispatchAll();
+    }
+    // Same with buffer queues
+    for (FwIndexType portNum = 0; portNum < ComQueue::BUFFER_PORT_COUNT; portNum++) {
+        invoke_to_bufferQueueIn(portNum, buffer);
+        this->dispatchAll();
+    }
+    // Flush everything ensuring nothing is sent
+    this->sendCmd_FLUSH_ALL_QUEUES(0, 0);
+    this->dispatchAll();
+    this->emitOne();  // Ensure that nothing is emitted
+    ASSERT_from_dataOut_SIZE(0);
+    // Check that all buffers are returned (by count)
+    ASSERT_from_bufferReturnOut_SIZE(ComQueue::BUFFER_PORT_COUNT);
+
+    // Check that each buffer returned is the expected one. Although, the order isn't guaranteed, the set should match
+    // since the implementation is in queue order. This thus makes an easy "did we get them all" check.
+    for (FwIndexType portNum = 0; portNum < ComQueue::BUFFER_PORT_COUNT; portNum++) {
+        ASSERT_from_bufferReturnOut(portNum, buffer);
+    }
+    this->assertZeroDropTelemetry();
+    clearFromPortHistory();
+    component.cleanup();
+}
+
+void ComQueueTester ::testQueuePause() {
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer comBuffer(&data[0], sizeof(data));
+    Fw::Buffer buffer(&data[0], sizeof(data));
+    configure();
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::COM_PORT_COUNT; portNum++) {
+        invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
+        // Send a bunch of failures
+        Fw::Success state = Fw::Success::FAILURE;
+        invoke_to_comStatusIn(0, state);
+        invoke_to_comStatusIn(0, state);
+        invoke_to_comStatusIn(0, state);
+        emitOneAndCheck(portNum, comBuffer.getBuffAddr(), comBuffer.getSize());
+    }
+    clearFromPortHistory();
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::BUFFER_PORT_COUNT; portNum++) {
+        invoke_to_bufferQueueIn(portNum, buffer);
+        // Send a bunch of failures
+        Fw::Success state = Fw::Success::FAILURE;
+        invoke_to_comStatusIn(0, state);
+        invoke_to_comStatusIn(0, state);
+        invoke_to_comStatusIn(0, state);
+        emitOneAndCheck(portNum, buffer.getData(), buffer.getSize());
+        ASSERT_from_bufferReturnOut(portNum, buffer);
+    }
+    ASSERT_from_bufferReturnOut_SIZE(ComQueue::BUFFER_PORT_COUNT);
+    clearFromPortHistory();
+    component.cleanup();
+}
+
+void ComQueueTester ::testPrioritySend() {
+    U8 data[ComQueue::TOTAL_PORT_COUNT][BUFFER_LENGTH] = {};
+
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = ComQueue::TOTAL_PORT_COUNT - i - 1;
+        configurationTable.entries[i].depth = 3;
+        // Set a unique data value in the buffer (at offset, accounting for mandatory packet type)
+        data[i][BUFFER_DATA_OFFSET] = ComQueue::TOTAL_PORT_COUNT - i - 1;
+    }
+
+    // Make the last message have the same priority as the second message
+    configurationTable.entries[ComQueue::TOTAL_PORT_COUNT - 1].priority = 1;
+    data[ComQueue::TOTAL_PORT_COUNT - 2][BUFFER_DATA_OFFSET] = 0;
+    data[ComQueue::TOTAL_PORT_COUNT - 1][BUFFER_DATA_OFFSET] = 1;
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::COM_PORT_COUNT; portNum++) {
+        Fw::ComBuffer comBuffer(&data[portNum][0], BUFFER_LENGTH);
+        invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
+    }
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::BUFFER_PORT_COUNT; portNum++) {
+        Fw::Buffer buffer(&data[portNum + ComQueue::COM_PORT_COUNT][0], BUFFER_LENGTH);
+        invoke_to_bufferQueueIn(portNum, buffer);
+    }
+
+    // Check that nothing has yet been sent
+    ASSERT_from_dataOut_SIZE(0);
+
+    for (FwIndexType index = 0; index < ComQueue::TOTAL_PORT_COUNT; index++) {
+        U8 orderKey;
+        U32 previousSize = fromPortHistory_dataOut->size();
+        emitOne();
+        ASSERT_EQ(fromPortHistory_dataOut->size(), (index + 1));
+        // Check that the size changed by exactly one
+        ASSERT_EQ(fromPortHistory_dataOut->size(), (previousSize + 1));
+
+        orderKey = fromPortHistory_dataOut->at(index).data.getData()[BUFFER_DATA_OFFSET];
+        ASSERT_EQ(orderKey, index);
+    }
+    clearFromPortHistory();
+    component.cleanup();
+}
+
+void ComQueueTester::testExternalQueueOverflow() {
+    // "External" queue is ComQueue's managed queue for input Com/Buffers
+    // as opposed to the "internal" message queue for async input ports
+    ComQueue::QueueConfigurationTable configurationTable;
+    ComQueueDepth expectedComDepth;
+    BuffQueueDepth expectedBuffDepth;
+
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 2;
+
+        // Expected depths
+        if (i < ComQueue::COM_PORT_COUNT) {
+            expectedComDepth[i] = configurationTable.entries[i].depth;
+        } else {
+            expectedBuffDepth[i - ComQueue::COM_PORT_COUNT] = configurationTable.entries[i].depth;
+        }
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::Buffer buffer(&data[0], sizeof(data));
+
+    for (FwIndexType queueNum = 0; queueNum < ComQueue::TOTAL_PORT_COUNT; queueNum++) {
+        QueueType overflow_type;
+        FwIndexType portNum;
+        // queue[portNum].depth + 2 to deliberately cause overflow of 2, in order to also test the throttle
+        for (FwSizeType msgCount = 0; msgCount < configurationTable.entries[queueNum].depth + 2; msgCount++) {
+            sendByQueueNumber(buffer, queueNum, portNum, overflow_type);
+            dispatchAll();
+        }
+        // Throttle should make it that we emitted only 1 event, even though we overflowed twice
+        ASSERT_EVENTS_QueueOverflow_SIZE(1);
+        ASSERT_EVENTS_QueueOverflow(0, overflow_type, portNum);
+
+        if (QueueType::BUFFER_QUEUE == overflow_type) {
+            // Two messages overflowed, so two buffers should be returned
+            ASSERT_from_bufferReturnOut_SIZE(2);
+            ASSERT_from_bufferReturnOut(0, buffer);
+            ASSERT_from_bufferReturnOut(1, buffer);
+        }
+
+        // Drain a message, and see if throttle resets
+        emitOne();
+
+        // Force another overflow by filling then deliberately overflowing the queue
+        sendByQueueNumber(buffer, queueNum, portNum, overflow_type);
+        sendByQueueNumber(buffer, queueNum, portNum, overflow_type);
+        dispatchAll();
+
+        if (QueueType::BUFFER_QUEUE == overflow_type) {
+            // Third message overflowed, emitOne yielded a return, so fourth bufferReturnOut
+            ASSERT_from_bufferReturnOut_SIZE(4);
+            ASSERT_from_bufferReturnOut(3, buffer);
+        }
+
+        // emitOne() reset the throttle, then overflow again. So expect a second overflow event
+        ASSERT_EVENTS_QueueOverflow_SIZE(2);
+        ASSERT_EVENTS_QueueOverflow(1, overflow_type, portNum);
+
+        // Drain the queue again such that we have a clean slate before the next queue
+        for (FwSizeType msgCount = 0; msgCount < configurationTable.entries[queueNum].depth; msgCount++) {
+            emitOne();
+        }
+        clearEvents();
+    }
+    // Check max seen queue-depths
+    invoke_to_run(0, 0);
+    dispatchAll();
+    ASSERT_TLM_comQueueDepth_SIZE(1);
+    ASSERT_TLM_buffQueueDepth_SIZE(1);
+    ASSERT_TLM_comQueueDepth(0, expectedComDepth);
+    ASSERT_TLM_buffQueueDepth(0, expectedBuffDepth);
+    component.cleanup();
+}
+
+void ComQueueTester::testDepthZeroQueue() {
+    // Disable the last com queue and the first buffer queue; leave the remaining queues enabled
+    const FwIndexType disabledComPort = ComQueue::COM_PORT_COUNT - 1;
+    const FwIndexType disabledBuffPort = 0;
+    ComQueue::QueueConfigurationTable configurationTable;
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 2;
+    }
+    configurationTable.entries[disabledComPort].depth = 0;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT + disabledBuffPort].depth = 0;
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer comBuffer(&data[0], sizeof(data));
+    Fw::Buffer buffer(&data[0], sizeof(data));
+
+    // An enabled queue still queues and sends normally
+    invoke_to_comPacketQueueIn(0, comBuffer, 0);
+    emitOneAndCheck(0, comBuffer.getBuffAddr(), comBuffer.getSize());
+    clearFromPortHistory();
+
+    // Messages to a disabled com queue overflow with a single (throttled) event and are never sent
+    invoke_to_comPacketQueueIn(disabledComPort, comBuffer, 0);
+    invoke_to_comPacketQueueIn(disabledComPort, comBuffer, 0);
+    dispatchAll();
+    ASSERT_EVENTS_QueueOverflow_SIZE(1);
+    ASSERT_EVENTS_QueueOverflow(0, QueueType::COM_QUEUE, disabledComPort);
+    emitOne();
+    ASSERT_from_dataOut_SIZE(0);
+
+    // Messages to a disabled buffer queue overflow and the buffer is returned to the sender
+    invoke_to_bufferQueueIn(disabledBuffPort, buffer);
+    dispatchAll();
+    ASSERT_EVENTS_QueueOverflow_SIZE(2);
+    ASSERT_EVENTS_QueueOverflow(1, QueueType::BUFFER_QUEUE, disabledBuffPort);
+    ASSERT_from_bufferReturnOut_SIZE(1);
+    ASSERT_from_bufferReturnOut(0, buffer);
+    ASSERT_from_dataOut_SIZE(0);
+
+    // Flushing disabled queues succeeds
+    this->sendCmd_FLUSH_QUEUE(0, 0, QueueType::COM_QUEUE, disabledComPort);
+    this->sendCmd_FLUSH_QUEUE(0, 0, QueueType::BUFFER_QUEUE, disabledBuffPort);
+    this->sendCmd_FLUSH_ALL_QUEUES(0, 0);
+    dispatchAll();
+    ASSERT_CMD_RESPONSE_SIZE(3);
+    ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_FLUSH_QUEUE, 0, Fw::CmdResponse::OK);
+    ASSERT_CMD_RESPONSE(1, ComQueue::OPCODE_FLUSH_QUEUE, 0, Fw::CmdResponse::OK);
+    ASSERT_CMD_RESPONSE(2, ComQueue::OPCODE_FLUSH_ALL_QUEUES, 0, Fw::CmdResponse::OK);
+
+    // High-water marks report 0 for disabled queues and the observed value for enabled queues
+    ComQueueDepth expectedComDepth;
+    BuffQueueDepth expectedBuffDepth;
+    for (FwIndexType i = 0; i < ComQueue::COM_PORT_COUNT; i++) {
+        expectedComDepth[i] = 0;
+    }
+    for (FwIndexType i = 0; i < ComQueue::BUFFER_PORT_COUNT; i++) {
+        expectedBuffDepth[i] = 0;
+    }
+    expectedComDepth[0] = 1;
+    invoke_to_run(0, 0);
+    dispatchAll();
+    ASSERT_TLM_comQueueDepth_SIZE(1);
+    ASSERT_TLM_buffQueueDepth_SIZE(1);
+    ASSERT_TLM_comQueueDepth(0, expectedComDepth);
+    ASSERT_TLM_buffQueueDepth(0, expectedBuffDepth);
+
+    ComQueueManagedDrops expectedComDrops;
+    for (U32 i = 0; i < expectedComDrops.SIZE; i++) {
+        expectedComDrops[i] = 0;
+    }
+    expectedComDrops[disabledComPort] = 2;
+    BuffQueueManagedDrops expectedBuffDrops;
+    for (U32 i = 0; i < expectedBuffDrops.SIZE; i++) {
+        expectedBuffDrops[i] = 0;
+    }
+    expectedBuffDrops[disabledBuffPort] = 1;
+    ASSERT_TLM_comManagedDropped(0, expectedComDrops);
+    ASSERT_TLM_buffManagedDropped(0, expectedBuffDrops);
+    component.cleanup();
+}
+
+void ComQueueTester::testAllQueuesDisabled() {
+    // The default-constructed table has every depth set to 0, which configure() must reject
+    ComQueue::QueueConfigurationTable configurationTable;
+    ASSERT_DEATH_IF_SUPPORTED(component.configure(configurationTable, 0, mallocAllocator), "ComQueue.cpp");
+}
+
+void ComQueueTester::testInternalQueueOverflow() {
+    // Internal queue is the message queue for async input ports
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::Buffer buffer(data, sizeof(data));
+
+    const FwIndexType queueNum = ComQueue::COM_PORT_COUNT;
+    const FwSizeType msgCountMax = this->component.m_queue.getDepth();
+    QueueType overflow_type;
+    FwIndexType portNum;
+
+    // fill the queue
+    for (FwSizeType msgCount = 0; msgCount < msgCountMax; msgCount++) {
+        sendByQueueNumber(buffer, queueNum, portNum, overflow_type);
+        ASSERT_EQ(overflow_type, QueueType::BUFFER_QUEUE);
+    }
+
+    // send one more to overflow the queue
+    sendByQueueNumber(buffer, queueNum, portNum, overflow_type);
+
+    ASSERT_from_bufferReturnOut_SIZE(1);
+    ASSERT_from_bufferReturnOut(0, buffer);
+
+    // send another
+    sendByQueueNumber(buffer, queueNum, portNum, overflow_type);
+
+    ASSERT_from_bufferReturnOut_SIZE(2);
+    ASSERT_from_bufferReturnOut(0, buffer);
+    ASSERT_from_bufferReturnOut(1, buffer);
+
+    component.cleanup();
+}
+
+void ComQueueTester::testComPacketAsyncIngressDrop() {
+    this->clearHistory();
+
+    const FwSizeType asyncDepth = this->component.m_queue.getDepth();
+    ASSERT_GT(asyncDepth, 0);
+
+    // Keep the managed FIFOs larger than the async message queue
+    // so they cannot be responsible for the observed loss.
+    ComQueue::QueueConfigurationTable configurationTable;
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = asyncDepth + 2;
+    }
+    this->component.configure(configurationTable, 0, mallocAllocator);
+
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer packet(data, sizeof(data));
+
+    // Fill the async ingress queue, then force two additional drops.
+    for (FwSizeType i = 0; i < asyncDepth + 2; i++) {
+        invoke_to_comPacketQueueIn(0, packet, 0);
+    }
+
+    ASSERT_EQ(this->component.m_queue.getMessagesAvailable(), asyncDepth);
+    ASSERT_EVENTS_QueueOverflow_SIZE(0);
+
+    // `run` is also an async port with DROP: during saturation this
+    // telemetry request is discarded; the cumulative count persists.
+    invoke_to_run(0, 0);
+    ASSERT_TLM_comIngressDropped_SIZE(0);
+    ASSERT_EQ(this->component.m_queue.getMessagesAvailable(), asyncDepth);
+
+    // Only the messages accepted by the async queue reach the
+    // managed FIFO. Its larger capacity excludes FIFO overflow.
+    this->dispatchAll();
+
+    ASSERT_EQ(this->component.m_queues[0].getQueueSize(), asyncDepth);
+    ASSERT_EVENTS_QueueOverflow_SIZE(0);
+
+    ComQueueIngressDrops expectedComDrops;
+    for (U32 i = 0; i < expectedComDrops.SIZE; i++) {
+        expectedComDrops[i] = 0;
+    }
+    expectedComDrops[0] = 2;
+    invoke_to_run(0, 0);
+    this->dispatchAll();
+    ASSERT_TLM_comIngressDropped_SIZE(1);
+    ASSERT_TLM_comIngressDropped(0, expectedComDrops);
+    BuffQueueIngressDrops zeroBuffDrops;
+    for (U32 i = 0; i < zeroBuffDrops.SIZE; i++) {
+        zeroBuffDrops[i] = 0;
+    }
+    ASSERT_TLM_buffIngressDropped_SIZE(1);
+    ASSERT_TLM_buffIngressDropped(0, zeroBuffDrops);
+
+    this->component.cleanup();
+}
+
+void ComQueueTester::testBufferAsyncIngressDrop() {
+    this->clearHistory();
+    const FwSizeType asyncDepth = this->component.m_queue.getDepth();
+    ASSERT_GT(asyncDepth, 0);
+
+    // Prevent managed FIFO saturation from masking ingress drops.
+    ComQueue::QueueConfigurationTable configurationTable;
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = asyncDepth + 2;
+    }
+    this->component.configure(configurationTable, 0, mallocAllocator);
+
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::Buffer buffer(data, sizeof(data));
+    for (FwSizeType i = 0; i < asyncDepth + 2; i++) {
+        invoke_to_bufferQueueIn(0, buffer);
+    }
+
+    ASSERT_EQ(this->component.m_queue.getMessagesAvailable(), asyncDepth);
+    ASSERT_from_bufferReturnOut_SIZE(2);
+    ASSERT_from_bufferReturnOut(0, buffer);
+    ASSERT_from_bufferReturnOut(1, buffer);
+    ASSERT_EVENTS_QueueOverflow_SIZE(0);
+
+    this->dispatchAll();
+    ASSERT_EQ(this->component.m_queues[ComQueue::COM_PORT_COUNT].getQueueSize(), asyncDepth);
+    ASSERT_EVENTS_QueueOverflow_SIZE(0);
+
+    BuffQueueIngressDrops expectedBuffDrops;
+    for (U32 i = 0; i < expectedBuffDrops.SIZE; i++) {
+        expectedBuffDrops[i] = 0;
+    }
+    expectedBuffDrops[0] = 2;
+    invoke_to_run(0, 0);
+    this->dispatchAll();
+    ASSERT_TLM_buffIngressDropped_SIZE(1);
+    ASSERT_TLM_buffIngressDropped(0, expectedBuffDrops);
+    ComQueueIngressDrops zeroComDrops;
+    for (U32 i = 0; i < zeroComDrops.SIZE; i++) {
+        zeroComDrops[i] = 0;
+    }
+    ASSERT_TLM_comIngressDropped_SIZE(1);
+    ASSERT_TLM_comIngressDropped(0, zeroComDrops);
+
+    this->component.cleanup();
+}
+
+void ComQueueTester::concurrentComAsyncProducerTask(void* context) {
+    ComQueueTester* tester = static_cast<ComQueueTester*>(context);
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer packet(data, sizeof(data));
+    for (U32 i = 0; i < CONCURRENT_INGRESS_DROPS_PER_TASK; i++) {
+        tester->invoke_to_comPacketQueueIn(0, packet, 0);
+    }
+}
+
+void ComQueueTester::testConcurrentComAsyncIngressDrop() {
+    this->clearHistory();
+    const FwSizeType asyncDepth = this->component.m_queue.getDepth();
+    ASSERT_GT(asyncDepth, 0);
+
+    ComQueue::QueueConfigurationTable configurationTable;
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = asyncDepth + 1;
+    }
+    this->component.configure(configurationTable, 0, mallocAllocator);
+
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer packet(data, sizeof(data));
+    for (FwSizeType i = 0; i < asyncDepth; i++) {
+        invoke_to_comPacketQueueIn(0, packet, 0);
+    }
+    ASSERT_EQ(this->component.m_queue.getMessagesAvailable(), asyncDepth);
+    ASSERT_EQ(this->component.m_comIngressDrops[0].load(std::memory_order_relaxed), 0u);
+
+    // Stress the actual async ingress path from independent producer threads.
+    Os::Task tasks[CONCURRENT_INGRESS_TASKS];
+    for (U32 i = 0; i < CONCURRENT_INGRESS_TASKS; i++) {
+        Os::Task::Arguments args(Fw::String("ComIngressStress"), ComQueueTester::concurrentComAsyncProducerTask, this);
+        ASSERT_EQ(Os::Task::Status::OP_OK, tasks[i].start(args));
+    }
+    for (U32 i = 0; i < CONCURRENT_INGRESS_TASKS; i++) {
+        ASSERT_EQ(Os::Task::Status::OP_OK, tasks[i].join());
+    }
+
+    const U32 expectedDrops = CONCURRENT_INGRESS_TASKS * CONCURRENT_INGRESS_DROPS_PER_TASK;
+    ASSERT_EQ(this->component.m_queue.getMessagesAvailable(), asyncDepth);
+    ASSERT_EQ(this->component.m_comIngressDrops[0].load(std::memory_order_relaxed), expectedDrops);
+
+    // Validate per-port isolation if the configuration exposes another Com port.
+    if (ComQueue::COM_PORT_COUNT > 1) {
+        const FwIndexType otherPort = ComQueue::COM_PORT_COUNT - 1;
+        for (U32 i = 0; i < 3; i++) {
+            invoke_to_comPacketQueueIn(otherPort, packet, 0);
+        }
+        ASSERT_EQ(this->component.m_comIngressDrops[otherPort].load(std::memory_order_relaxed), 3u);
+    }
+    ASSERT_EVENTS_QueueOverflow_SIZE(0);
+
+    // Drain ingress and let the run handler publish the counters.
+    this->dispatchAll();
+    ASSERT_EQ(this->component.m_queues[0].getQueueSize(), asyncDepth);
+    ASSERT_EVENTS_QueueOverflow_SIZE(0);
+    invoke_to_run(0, 0);
+    this->dispatchAll();
+
+    ComQueueIngressDrops expectedCom;
+    for (U32 i = 0; i < expectedCom.SIZE; i++) {
+        expectedCom[i] = 0;
+    }
+    expectedCom[0] = expectedDrops;
+    if (ComQueue::COM_PORT_COUNT > 1) {
+        expectedCom[ComQueue::COM_PORT_COUNT - 1] = 3;
+    }
+    ASSERT_TLM_comIngressDropped_SIZE(1);
+    ASSERT_TLM_comIngressDropped(0, expectedCom);
+    BuffQueueIngressDrops zeroBuffDrops;
+    for (U32 i = 0; i < zeroBuffDrops.SIZE; i++) {
+        zeroBuffDrops[i] = 0;
+    }
+    ASSERT_TLM_buffIngressDropped_SIZE(1);
+    ASSERT_TLM_buffIngressDropped(0, zeroBuffDrops);
+    this->component.cleanup();
+}
+
+void ComQueueTester::testFifoDropNewestAccounting() {
+    this->clearHistory();
+    ComQueue::QueueConfigurationTable table;
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        table.entries[i].priority = i;
+        table.entries[i].depth = 1;
+    }
+    this->component.configure(table, 0, mallocAllocator);
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer packet(data, sizeof(data));
+    Fw::Buffer buffer(data, sizeof(data));
+
+    // Dispatch after EVERY send: only managed FIFO depth, not ingress depth, may overflow.
+    for (U32 i = 0; i < 3; i++) {
+        invoke_to_comPacketQueueIn(0, packet, 0);
+        this->dispatchAll();
+        invoke_to_bufferQueueIn(0, buffer);
+        this->dispatchAll();
+    }
+    ASSERT_EVENTS_QueueOverflow_SIZE(2);  // one throttled warning for each FIFO
+    ASSERT_from_bufferReturnOut_SIZE(2);  // two rejected buffer sends return ownership
+    ASSERT_EQ(this->component.m_queues[0].getQueueSize(), 1);
+    ASSERT_EQ(this->component.m_queues[ComQueue::COM_PORT_COUNT].getQueueSize(), 1);
+
+    invoke_to_run(0, 0);
+    this->dispatchAll();
+    ComQueueManagedDrops expectedCom;
+    for (U32 i = 0; i < expectedCom.SIZE; i++) {
+        expectedCom[i] = 0;
+    }
+    expectedCom[0] = 2;
+    BuffQueueManagedDrops expectedBuff;
+    for (U32 i = 0; i < expectedBuff.SIZE; i++) {
+        expectedBuff[i] = 0;
+    }
+    expectedBuff[0] = 2;
+    ASSERT_TLM_comManagedDropped_SIZE(1);
+    ASSERT_TLM_comManagedDropped(0, expectedCom);
+    ASSERT_TLM_buffManagedDropped_SIZE(1);
+    ASSERT_TLM_buffManagedDropped(0, expectedBuff);
+
+    // Ingress accounting must not treat a managed FIFO drop as an ingress drop.
+    ComQueueIngressDrops zeroCom;
+    for (U32 i = 0; i < zeroCom.SIZE; i++) {
+        zeroCom[i] = 0;
+    }
+    BuffQueueIngressDrops zeroBuff;
+    for (U32 i = 0; i < zeroBuff.SIZE; i++) {
+        zeroBuff[i] = 0;
+    }
+    ASSERT_TLM_comIngressDropped(0, zeroCom);
+    ASSERT_TLM_buffIngressDropped(0, zeroBuff);
+    this->component.cleanup();
+}
+
+void ComQueueTester::testFifoDropOldestAccounting() {
+    this->clearHistory();
+    ComQueue::QueueConfigurationTable table;
+    for (FwIndexType i = 0; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        table.entries[i].priority = i;
+        table.entries[i].depth = 1;
+    }
+    table.entries[0].overflowMode = Types::QUEUE_DROP_OLDEST;
+    table.entries[ComQueue::COM_PORT_COUNT].overflowMode = Types::QUEUE_DROP_OLDEST;
+    this->component.configure(table, 0, mallocAllocator);
+    U8 firstData[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 secondData[BUFFER_LENGTH] = BUFFER_DATA;
+    firstData[BUFFER_DATA_OFFSET] = 1;
+    secondData[BUFFER_DATA_OFFSET] = 2;
+    Fw::ComBuffer firstPacket(firstData, sizeof(firstData));
+    Fw::ComBuffer secondPacket(secondData, sizeof(secondData));
+    Fw::Buffer firstBuffer(firstData, sizeof(firstData));
+    Fw::Buffer secondBuffer(secondData, sizeof(secondData));
+
+    invoke_to_comPacketQueueIn(0, firstPacket, 0);
+    this->dispatchAll();
+    invoke_to_comPacketQueueIn(0, secondPacket, 0);
+    this->dispatchAll();
+    invoke_to_bufferQueueIn(0, firstBuffer);
+    this->dispatchAll();
+    invoke_to_bufferQueueIn(0, secondBuffer);
+    this->dispatchAll();
+    ASSERT_EVENTS_QueueOverflow_SIZE(2);
+    ASSERT_from_bufferReturnOut_SIZE(1);
+    ASSERT_from_bufferReturnOut(0, firstBuffer);
+
+    invoke_to_run(0, 0);
+    this->dispatchAll();
+    ComQueueManagedDrops expectedCom;
+    for (U32 i = 0; i < expectedCom.SIZE; i++) {
+        expectedCom[i] = 0;
+    }
+    expectedCom[0] = 1;
+    BuffQueueManagedDrops expectedBuff;
+    for (U32 i = 0; i < expectedBuff.SIZE; i++) {
+        expectedBuff[i] = 0;
+    }
+    expectedBuff[0] = 1;
+    ASSERT_TLM_comManagedDropped_SIZE(1);
+    ASSERT_TLM_comManagedDropped(0, expectedCom);
+    ASSERT_TLM_buffManagedDropped_SIZE(1);
+    ASSERT_TLM_buffManagedDropped(0, expectedBuff);
+    this->component.cleanup();
+}
+
+void ComQueueTester ::testReadyFirst() {
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer comBuffer(&data[0], sizeof(data));
+    Fw::Buffer buffer(&data[0], sizeof(data));
+    configure();
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::COM_PORT_COUNT; portNum++) {
+        emitOne();
+        invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
+        dispatchAll();
+
+        Fw::Buffer emittedBuffer = this->fromPortHistory_dataOut->at(portNum).data;
+        ASSERT_EQ(emittedBuffer.getSize(), comBuffer.getSize());
+        for (FwSizeType i = 0; i < emittedBuffer.getSize(); i++) {
+            ASSERT_EQ(emittedBuffer.getData()[i], comBuffer.getBuffAddr()[i]);
+        }
+    }
+    clearFromPortHistory();
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::BUFFER_PORT_COUNT; portNum++) {
+        emitOne();
+        invoke_to_bufferQueueIn(portNum, buffer);
+        dispatchAll();
+        Fw::Buffer emittedBuffer = this->fromPortHistory_dataOut->at(portNum).data;
+        ASSERT_EQ(emittedBuffer.getSize(), buffer.getSize());
+        for (FwSizeType i = 0; i < buffer.getSize(); i++) {
+            ASSERT_EQ(buffer.getData()[i], emittedBuffer.getData()[i]);
+        }
+    }
+    clearFromPortHistory();
+    component.cleanup();
+}
+
+void ComQueueTester ::testContextData() {
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::ComBuffer comBuffer(&data[0], sizeof(data));
+    Fw::Buffer buffer(&data[0], sizeof(data));
+    configure();
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::COM_PORT_COUNT; portNum++) {
+        invoke_to_comPacketQueueIn(portNum, comBuffer, 0);
+        emitOne();
+        // Currently, the APID is set to the queue index, which is the same as the port number for COM ports
+        FwIndexType expectedApid = portNum;
+        auto emittedContext = this->fromPortHistory_dataOut->at(portNum).context;
+        ASSERT_EQ(expectedApid, emittedContext.get_comQueueIndex());
+    }
+    clearFromPortHistory();
+
+    for (FwIndexType portNum = 0; portNum < ComQueue::BUFFER_PORT_COUNT; portNum++) {
+        invoke_to_bufferQueueIn(portNum, buffer);
+        emitOne();
+        // APID is queue index, which is COM_PORT_COUNT + portNum for BUFFER ports
+        FwIndexType expectedApid = portNum + ComQueue::COM_PORT_COUNT;
+        auto emittedContext = this->fromPortHistory_dataOut->at(portNum).context;
+        ASSERT_EQ(expectedApid, emittedContext.get_comQueueIndex());
+    }
+    clearFromPortHistory();
+    component.cleanup();
+}
+
+void ComQueueTester ::from_dataOut_handler(FwIndexType portNum, Fw::Buffer& data, const ComCfg::FrameContext& context) {
+    this->pushFromPortEntry_dataOut(data, context);
+    this->invoke_to_dataReturnIn(0, data, context);
+}
+
+// ----------------------------------------------------------------------
+// Queue Mode and Overflow Mode Tests
+// ----------------------------------------------------------------------
+
+void ComQueueTester ::testFIFOMode() {
+    // Test that FIFO mode dequeues in the correct order
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    // Configure first COM queue as FIFO (default) with sufficient depth
+    configurationTable.entries[0].priority = 0;
+    configurationTable.entries[0].depth = 5;
+    configurationTable.entries[0].mode = Types::QUEUE_FIFO;
+    configurationTable.entries[0].overflowMode = Types::QUEUE_DROP_NEWEST;
+
+    // Configure other queues with minimal settings
+    for (FwIndexType i = 1; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    // Create unique buffers for each message
+    U8 data1[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data2[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data3[BUFFER_LENGTH] = BUFFER_DATA;
+    data1[BUFFER_DATA_OFFSET] = 1;
+    data2[BUFFER_DATA_OFFSET] = 2;
+    data3[BUFFER_DATA_OFFSET] = 3;
+
+    Fw::ComBuffer comBuffer1(&data1[0], sizeof(data1));
+    Fw::ComBuffer comBuffer2(&data2[0], sizeof(data2));
+    Fw::ComBuffer comBuffer3(&data3[0], sizeof(data3));
+
+    // Enqueue three messages
+    invoke_to_comPacketQueueIn(0, comBuffer1, 0);
+    invoke_to_comPacketQueueIn(0, comBuffer2, 0);
+    invoke_to_comPacketQueueIn(0, comBuffer3, 0);
+    dispatchAll();
+
+    // Dequeue and verify FIFO order: 1, 2, 3
+    emitOneAndCheck(0, data1, BUFFER_LENGTH);
+    emitOneAndCheck(1, data2, BUFFER_LENGTH);
+    emitOneAndCheck(2, data3, BUFFER_LENGTH);
+
+    component.cleanup();
+}
+
+void ComQueueTester ::testLIFOMode() {
+    // Test that LIFO mode dequeues in reverse order
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    // Configure first COM queue as LIFO with sufficient depth
+    configurationTable.entries[0].priority = 0;
+    configurationTable.entries[0].depth = 5;
+    configurationTable.entries[0].mode = Types::QUEUE_LIFO;
+    configurationTable.entries[0].overflowMode = Types::QUEUE_DROP_NEWEST;
+
+    // Configure other queues with minimal settings
+    for (FwIndexType i = 1; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    // Create unique buffers for each message
+    U8 data1[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data2[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data3[BUFFER_LENGTH] = BUFFER_DATA;
+    data1[BUFFER_DATA_OFFSET] = 1;
+    data2[BUFFER_DATA_OFFSET] = 2;
+    data3[BUFFER_DATA_OFFSET] = 3;
+
+    Fw::ComBuffer comBuffer1(&data1[0], sizeof(data1));
+    Fw::ComBuffer comBuffer2(&data2[0], sizeof(data2));
+    Fw::ComBuffer comBuffer3(&data3[0], sizeof(data3));
+
+    // Enqueue three messages
+    invoke_to_comPacketQueueIn(0, comBuffer1, 0);
+    invoke_to_comPacketQueueIn(0, comBuffer2, 0);
+    invoke_to_comPacketQueueIn(0, comBuffer3, 0);
+    dispatchAll();
+
+    // Dequeue and verify LIFO order: 3, 2, 1 (newest first)
+    emitOneAndCheck(0, data3, BUFFER_LENGTH);
+    emitOneAndCheck(1, data2, BUFFER_LENGTH);
+    emitOneAndCheck(2, data1, BUFFER_LENGTH);
+
+    component.cleanup();
+}
+
+void ComQueueTester ::testDropNewestMode() {
+    // Test that DROP_NEWEST rejects new messages when queue is full
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    // Configure first COM queue with DROP_NEWEST and small depth
+    configurationTable.entries[0].priority = 0;
+    configurationTable.entries[0].depth = 2;
+    configurationTable.entries[0].mode = Types::QUEUE_FIFO;
+    configurationTable.entries[0].overflowMode = Types::QUEUE_DROP_NEWEST;
+
+    // Configure other queues with minimal settings
+    for (FwIndexType i = 1; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    // Create unique buffers
+    U8 data1[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data2[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data3[BUFFER_LENGTH] = BUFFER_DATA;
+    data1[BUFFER_DATA_OFFSET] = 1;
+    data2[BUFFER_DATA_OFFSET] = 2;
+    data3[BUFFER_DATA_OFFSET] = 3;
+
+    Fw::ComBuffer comBuffer1(&data1[0], sizeof(data1));
+    Fw::ComBuffer comBuffer2(&data2[0], sizeof(data2));
+    Fw::ComBuffer comBuffer3(&data3[0], sizeof(data3));
+
+    // Fill the queue (depth = 2)
+    invoke_to_comPacketQueueIn(0, comBuffer1, 0);
+    invoke_to_comPacketQueueIn(0, comBuffer2, 0);
+    dispatchAll();
+
+    // Try to enqueue when full - should cause overflow event
+    invoke_to_comPacketQueueIn(0, comBuffer3, 0);
+    dispatchAll();
+
+    // Verify overflow event was emitted
+    ASSERT_EVENTS_QueueOverflow_SIZE(1);
+    ASSERT_EVENTS_QueueOverflow(0, QueueType::COM_QUEUE, 0);
+
+    // Dequeue and verify original messages are intact (newest was dropped)
+    emitOneAndCheck(0, data1, BUFFER_LENGTH);
+    emitOneAndCheck(1, data2, BUFFER_LENGTH);
+
+    // Verify queue is now empty (no third message)
+    ASSERT_from_dataOut_SIZE(2);
+
+    component.cleanup();
+}
+
+void ComQueueTester ::testDropOldestMode() {
+    // Test that DROP_OLDEST removes oldest message when queue is full
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    // Configure first COM queue with DROP_OLDEST and small depth
+    configurationTable.entries[0].priority = 0;
+    configurationTable.entries[0].depth = 2;
+    configurationTable.entries[0].mode = Types::QUEUE_FIFO;
+    configurationTable.entries[0].overflowMode = Types::QUEUE_DROP_OLDEST;
+
+    // Configure other queues with minimal settings
+    for (FwIndexType i = 1; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    // Create unique buffers
+    U8 data1[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data2[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data3[BUFFER_LENGTH] = BUFFER_DATA;
+    data1[BUFFER_DATA_OFFSET] = 1;
+    data2[BUFFER_DATA_OFFSET] = 2;
+    data3[BUFFER_DATA_OFFSET] = 3;
+
+    Fw::ComBuffer comBuffer1(&data1[0], sizeof(data1));
+    Fw::ComBuffer comBuffer2(&data2[0], sizeof(data2));
+    Fw::ComBuffer comBuffer3(&data3[0], sizeof(data3));
+
+    // Fill the queue (depth = 2)
+    invoke_to_comPacketQueueIn(0, comBuffer1, 0);
+    invoke_to_comPacketQueueIn(0, comBuffer2, 0);
+    dispatchAll();
+
+    // Enqueue when full - should succeed by dropping oldest (message 1)
+    invoke_to_comPacketQueueIn(0, comBuffer3, 0);
+    dispatchAll();
+
+    // Verify overflow event was emitted
+    ASSERT_EVENTS_QueueOverflow_SIZE(1);
+    ASSERT_EVENTS_QueueOverflow(0, QueueType::COM_QUEUE, 0);
+
+    // Dequeue and verify we have messages 2 and 3 (oldest was dropped)
+    emitOneAndCheck(0, data2, BUFFER_LENGTH);
+    emitOneAndCheck(1, data3, BUFFER_LENGTH);
+
+    // Verify we only have 2 messages
+    ASSERT_from_dataOut_SIZE(2);
+
+    component.cleanup();
+}
+
+void ComQueueTester ::testLIFOWithDropOldest() {
+    // Test combination of LIFO mode with DROP_OLDEST overflow behavior
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    // Configure first COM queue as LIFO with DROP_OLDEST
+    configurationTable.entries[0].priority = 0;
+    configurationTable.entries[0].depth = 2;
+    configurationTable.entries[0].mode = Types::QUEUE_LIFO;
+    configurationTable.entries[0].overflowMode = Types::QUEUE_DROP_OLDEST;
+
+    // Configure other queues with minimal settings
+    for (FwIndexType i = 1; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    // Create unique buffers
+    U8 data1[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data2[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data3[BUFFER_LENGTH] = BUFFER_DATA;
+    data1[BUFFER_DATA_OFFSET] = 1;
+    data2[BUFFER_DATA_OFFSET] = 2;
+    data3[BUFFER_DATA_OFFSET] = 3;
+
+    Fw::ComBuffer comBuffer1(&data1[0], sizeof(data1));
+    Fw::ComBuffer comBuffer2(&data2[0], sizeof(data2));
+    Fw::ComBuffer comBuffer3(&data3[0], sizeof(data3));
+
+    // Fill the queue (depth = 2)
+    invoke_to_comPacketQueueIn(0, comBuffer1, 0);
+    invoke_to_comPacketQueueIn(0, comBuffer2, 0);
+    dispatchAll();
+
+    // Enqueue when full - should drop oldest (message 1)
+    invoke_to_comPacketQueueIn(0, comBuffer3, 0);
+    dispatchAll();
+
+    // Verify overflow event was emitted
+    ASSERT_EVENTS_QueueOverflow_SIZE(1);
+    ASSERT_EVENTS_QueueOverflow(0, QueueType::COM_QUEUE, 0);
+
+    // Dequeue in LIFO order from remaining messages: 3, 2
+    emitOneAndCheck(0, data3, BUFFER_LENGTH);
+    emitOneAndCheck(1, data2, BUFFER_LENGTH);
+
+    // Verify we only have 2 messages
+    ASSERT_from_dataOut_SIZE(2);
+
+    component.cleanup();
+}
+
+void ComQueueTester ::testBufferQueueFIFOMode() {
+    // Test FIFO mode with Fw::Buffer queues
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    // Configure all COM queues with priority 1, minimal depth
+    for (FwIndexType i = 0; i < ComQueue::COM_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = 1;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    // Configure first BUFFER queue as FIFO with higher priority (0)
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].priority = 0;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].depth = 5;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].mode = Types::QUEUE_FIFO;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].overflowMode = Types::QUEUE_DROP_NEWEST;
+
+    // Configure remaining buffer queues
+    for (FwIndexType i = ComQueue::COM_PORT_COUNT + 1; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    // Create unique buffers for each message
+    U8 data1[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data2[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data3[BUFFER_LENGTH] = BUFFER_DATA;
+    data1[BUFFER_DATA_OFFSET] = 1;
+    data2[BUFFER_DATA_OFFSET] = 2;
+    data3[BUFFER_DATA_OFFSET] = 3;
+
+    Fw::Buffer buffer1(&data1[0], sizeof(data1));
+    Fw::Buffer buffer2(&data2[0], sizeof(data2));
+    Fw::Buffer buffer3(&data3[0], sizeof(data3));
+
+    // Enqueue three buffer messages
+    invoke_to_bufferQueueIn(0, buffer1);
+    invoke_to_bufferQueueIn(0, buffer2);
+    invoke_to_bufferQueueIn(0, buffer3);
+    dispatchAll();
+
+    // Dequeue and verify FIFO order: 1, 2, 3
+    emitOneAndCheck(0, data1, BUFFER_LENGTH);
+    emitOneAndCheck(1, data2, BUFFER_LENGTH);
+    emitOneAndCheck(2, data3, BUFFER_LENGTH);
+
+    // Verify buffers were returned
+    ASSERT_from_bufferReturnOut_SIZE(3);
+
+    component.cleanup();
+}
+
+void ComQueueTester ::testBufferQueueLIFOMode() {
+    // Test LIFO mode with Fw::Buffer queues
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    // Configure all COM queues with priority 1, minimal depth
+    for (FwIndexType i = 0; i < ComQueue::COM_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = 1;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    // Configure first BUFFER queue as LIFO with higher priority (0)
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].priority = 0;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].depth = 5;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].mode = Types::QUEUE_LIFO;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].overflowMode = Types::QUEUE_DROP_NEWEST;
+
+    // Configure remaining buffer queues
+    for (FwIndexType i = ComQueue::COM_PORT_COUNT + 1; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    // Create unique buffers for each message
+    U8 data1[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data2[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data3[BUFFER_LENGTH] = BUFFER_DATA;
+    data1[BUFFER_DATA_OFFSET] = 1;
+    data2[BUFFER_DATA_OFFSET] = 2;
+    data3[BUFFER_DATA_OFFSET] = 3;
+
+    Fw::Buffer buffer1(&data1[0], sizeof(data1));
+    Fw::Buffer buffer2(&data2[0], sizeof(data2));
+    Fw::Buffer buffer3(&data3[0], sizeof(data3));
+
+    // Enqueue three buffer messages
+    invoke_to_bufferQueueIn(0, buffer1);
+    invoke_to_bufferQueueIn(0, buffer2);
+    invoke_to_bufferQueueIn(0, buffer3);
+    dispatchAll();
+
+    // Dequeue and verify LIFO order: 3, 2, 1
+    emitOneAndCheck(0, data3, BUFFER_LENGTH);
+    emitOneAndCheck(1, data2, BUFFER_LENGTH);
+    emitOneAndCheck(2, data1, BUFFER_LENGTH);
+
+    // Verify buffers were returned
+    ASSERT_from_bufferReturnOut_SIZE(3);
+
+    component.cleanup();
+}
+
+void ComQueueTester ::testBufferQueueDropOldestMode() {
+    // Test DROP_OLDEST mode with Fw::Buffer queues
+    ComQueue::QueueConfigurationTable configurationTable;
+
+    // Configure all COM queues with priority 1, minimal depth
+    for (FwIndexType i = 0; i < ComQueue::COM_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = 1;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    // Configure first BUFFER queue with DROP_OLDEST
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].priority = 0;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].depth = 2;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].mode = Types::QUEUE_FIFO;
+    configurationTable.entries[ComQueue::COM_PORT_COUNT].overflowMode = Types::QUEUE_DROP_OLDEST;
+
+    // Configure remaining buffer queues
+    for (FwIndexType i = ComQueue::COM_PORT_COUNT + 1; i < ComQueue::TOTAL_PORT_COUNT; i++) {
+        configurationTable.entries[i].priority = i;
+        configurationTable.entries[i].depth = 1;
+    }
+
+    component.configure(configurationTable, 0, mallocAllocator);
+
+    // Create unique buffers
+    U8 data1[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data2[BUFFER_LENGTH] = BUFFER_DATA;
+    U8 data3[BUFFER_LENGTH] = BUFFER_DATA;
+    data1[BUFFER_DATA_OFFSET] = 1;
+    data2[BUFFER_DATA_OFFSET] = 2;
+    data3[BUFFER_DATA_OFFSET] = 3;
+
+    Fw::Buffer buffer1(&data1[0], sizeof(data1));
+    Fw::Buffer buffer2(&data2[0], sizeof(data2));
+    Fw::Buffer buffer3(&data3[0], sizeof(data3));
+
+    // Fill the buffer queue (depth = 2)
+    invoke_to_bufferQueueIn(0, buffer1);
+    invoke_to_bufferQueueIn(0, buffer2);
+    dispatchAll();
+
+    // Enqueue when full - should drop oldest (buffer1)
+    invoke_to_bufferQueueIn(0, buffer3);
+    dispatchAll();
+
+    // Verify overflow event was emitted
+    ASSERT_EVENTS_QueueOverflow_SIZE(1);
+    ASSERT_EVENTS_QueueOverflow(0, QueueType::BUFFER_QUEUE, 0);
+
+    // Dequeue and verify we have buffers 2 and 3
+    emitOneAndCheck(0, data2, BUFFER_LENGTH);
+    emitOneAndCheck(1, data3, BUFFER_LENGTH);
+
+    // Verify we only have 2 messages
+    ASSERT_from_dataOut_SIZE(2);
+
+    // Verify buffers were returned (2 sent + 1 dropped buffer1 returned for ownership)
+    ASSERT_from_bufferReturnOut_SIZE(3);
+
+    component.cleanup();
+}
+
+void ComQueueTester::testSetQueuePriorityCommand() {
+    // Configure the component
+    configure();
+
+    for (FwIndexType queueIndex = 0; queueIndex < 3; queueIndex++) {
+        ASSERT_EQ(queueIndex, this->component.m_prioritizedList[queueIndex].index);
+    }
+
+    // Send the SET_QUEUE_PRIORITY command for queue 0, setting priority to 2
+    // Priority must be < TOTAL_PORT_COUNT, so we use a small value that's guaranteed to be valid
+    const FwIndexType newPriority = 2;
+    this->sendCmd_SET_QUEUE_PRIORITY(0, 0, Svc::QueueType::COM_QUEUE, 0, newPriority);
+    this->component.doDispatch();
+
+    // Verify command response was OK
+    ASSERT_CMD_RESPONSE_SIZE(1);
+    ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_SET_QUEUE_PRIORITY, 0, Fw::CmdResponse::OK);
+
+    // Verify the event was emitted
+    ASSERT_EVENTS_QueuePriorityChanged_SIZE(1);
+    ASSERT_EVENTS_QueuePriorityChanged(0, Svc::QueueType::COM_QUEUE, 0, newPriority);
+
+    // Ensure the prioritizedList is sorted (monotonic)
+    FwIndexType currentPriority = 0;
+
+    for (FwIndexType queueIndex = 0; queueIndex < 3; queueIndex++) {
+        ASSERT_LE(currentPriority, this->component.m_prioritizedList[queueIndex].priority);
+        currentPriority = this->component.m_prioritizedList[queueIndex].priority;
+    }
+
+    component.cleanup();
+}
+
+void ComQueueTester ::testQueueFlushInvalidIndex() {
+    U8 data[BUFFER_LENGTH] = BUFFER_DATA;
+    Fw::Buffer buffer(&data[0], sizeof(data));
+    configure();
+
+    // Occupy buffer queue 0 so an aliased flush would be observable via bufferReturnOut
+    invoke_to_bufferQueueIn(0, buffer);
+
+    // COM_QUEUE indices at/after COM_PORT_COUNT fold onto buffer queues and must be rejected before folding
+    const FwIndexType invalidComIndices[] = {ComQueue::COM_PORT_COUNT, ComQueue::TOTAL_PORT_COUNT, -1};
+    for (FwIndexType invalidIndex : invalidComIndices) {
+        this->sendCmd_FLUSH_QUEUE(0, 0, QueueType::COM_QUEUE, invalidIndex);
+        this->dispatchAll();
+        ASSERT_CMD_RESPONSE_SIZE(1);
+        ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_FLUSH_QUEUE, 0, Fw::CmdResponse::VALIDATION_ERROR);
+        ASSERT_from_bufferReturnOut_SIZE(0);
+        this->clearHistory();
+    }
+
+    // BUFFER_QUEUE indices at/after BUFFER_PORT_COUNT must also be rejected
+    const FwIndexType invalidBufferIndices[] = {ComQueue::BUFFER_PORT_COUNT, ComQueue::TOTAL_PORT_COUNT, -1};
+    for (FwIndexType invalidIndex : invalidBufferIndices) {
+        this->sendCmd_FLUSH_QUEUE(0, 0, QueueType::BUFFER_QUEUE, invalidIndex);
+        this->dispatchAll();
+        ASSERT_CMD_RESPONSE_SIZE(1);
+        ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_FLUSH_QUEUE, 0, Fw::CmdResponse::VALIDATION_ERROR);
+        ASSERT_from_bufferReturnOut_SIZE(0);
+        this->clearHistory();
+    }
+
+    // Buffer queue 0 is still intact: a valid flush returns exactly the buffer queued above
+    this->sendCmd_FLUSH_QUEUE(0, 0, QueueType::BUFFER_QUEUE, 0);
+    this->dispatchAll();
+    ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_FLUSH_QUEUE, 0, Fw::CmdResponse::OK);
+    ASSERT_from_bufferReturnOut_SIZE(1);
+    ASSERT_from_bufferReturnOut(0, buffer);
+    clearFromPortHistory();
+    component.cleanup();
+}
+
+void ComQueueTester::testSetQueuePriorityInvalidIndex() {
+    // Configure the component
+    configure();
+
+    // COM_QUEUE indices at/after COM_PORT_COUNT would alias a buffer queue if folded before validation
+    const FwIndexType invalidIndices[] = {ComQueue::COM_PORT_COUNT, ComQueue::TOTAL_PORT_COUNT + 1};
+    for (FwIndexType invalidIndex : invalidIndices) {
+        this->sendCmd_SET_QUEUE_PRIORITY(0, 0, Svc::QueueType::COM_QUEUE, invalidIndex, 1);
+        this->component.doDispatch();
+
+        // Verify command response was VALIDATION_ERROR
+        ASSERT_CMD_RESPONSE_SIZE(1);
+        ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_SET_QUEUE_PRIORITY, 0, Fw::CmdResponse::VALIDATION_ERROR);
+
+        // Verify no priority changed event was emitted
+        ASSERT_EVENTS_QueuePriorityChanged_SIZE(0);
+        this->clearHistory();
+    }
+
+    // Verify the prioritized list is untouched
+    for (FwIndexType queueIndex = 0; queueIndex < ComQueue::TOTAL_PORT_COUNT; queueIndex++) {
+        ASSERT_EQ(queueIndex, this->component.m_prioritizedList[queueIndex].index);
+        ASSERT_EQ(queueIndex, this->component.m_prioritizedList[queueIndex].priority);
+    }
+
+    component.cleanup();
+}
+
+void ComQueueTester::testSetQueuePriorityInvalidBufferIndex() {
+    // Configure the component
+    configure();
+
+    // BUFFER_QUEUE indices at/after BUFFER_PORT_COUNT must be rejected
+    const FwIndexType invalidIndices[] = {ComQueue::BUFFER_PORT_COUNT, ComQueue::TOTAL_PORT_COUNT + 1, -1};
+    for (FwIndexType invalidIndex : invalidIndices) {
+        this->sendCmd_SET_QUEUE_PRIORITY(0, 0, Svc::QueueType::BUFFER_QUEUE, invalidIndex, 1);
+        this->component.doDispatch();
+
+        // Verify command response was VALIDATION_ERROR
+        ASSERT_CMD_RESPONSE_SIZE(1);
+        ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_SET_QUEUE_PRIORITY, 0, Fw::CmdResponse::VALIDATION_ERROR);
+
+        // Verify no priority changed event was emitted
+        ASSERT_EVENTS_QueuePriorityChanged_SIZE(0);
+        this->clearHistory();
+    }
+
+    component.cleanup();
+}
+
+void ComQueueTester::testSetQueuePriorityNegativeIndex() {
+    // Configure the component
+    configure();
+
+    // Send command with invalid queue index (beyond TOTAL_PORT_COUNT)
+    const FwIndexType invalidIndex = -1;
+    this->sendCmd_SET_QUEUE_PRIORITY(0, 0, Svc::QueueType::COM_QUEUE, invalidIndex, 1);
+    this->component.doDispatch();
+
+    // Verify command response was VALIDATION_ERROR
+    ASSERT_CMD_RESPONSE_SIZE(1);
+    ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_SET_QUEUE_PRIORITY, 0, Fw::CmdResponse::VALIDATION_ERROR);
+
+    // Verify no priority changed event was emitted
+    ASSERT_EVENTS_QueuePriorityChanged_SIZE(0);
+
+    component.cleanup();
+}
+
+void ComQueueTester::testSetQueuePriorityInvalidPriority() {
+    // Configure the component
+    configure();
+
+    // Send command with invalid priority value (beyond TOTAL_PORT_COUNT)
+    const FwIndexType invalidPriority = ComQueue::TOTAL_PORT_COUNT + 1;
+    this->sendCmd_SET_QUEUE_PRIORITY(0, 0, Svc::QueueType::BUFFER_QUEUE, 0, invalidPriority);
+    this->component.doDispatch();
+
+    // Verify command response was VALIDATION_ERROR
+    ASSERT_CMD_RESPONSE_SIZE(1);
+    ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_SET_QUEUE_PRIORITY, 0, Fw::CmdResponse::VALIDATION_ERROR);
+
+    // Verify no priority changed event was emitted
+    ASSERT_EVENTS_QueuePriorityChanged_SIZE(0);
+
+    component.cleanup();
+}
+
+void ComQueueTester::testSetQueuePriorityNegativePriority() {
+    // Configure the component
+    configure();
+
+    // Send command with invalid priority value (< 0)
+    const FwIndexType invalidPriority = -1;
+    this->sendCmd_SET_QUEUE_PRIORITY(0, 0, Svc::QueueType::COM_QUEUE, 0, invalidPriority);
+    this->component.doDispatch();
+
+    // Verify command response was VALIDATION_ERROR
+    ASSERT_CMD_RESPONSE_SIZE(1);
+    ASSERT_CMD_RESPONSE(0, ComQueue::OPCODE_SET_QUEUE_PRIORITY, 0, Fw::CmdResponse::VALIDATION_ERROR);
+
+    // Verify no priority changed event was emitted
+    ASSERT_EVENTS_QueuePriorityChanged_SIZE(0);
+
+    component.cleanup();
+}
+
+}  // end namespace Svc

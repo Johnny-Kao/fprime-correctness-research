@@ -1,0 +1,87 @@
+# Svc::AMPCSSequence Class
+
+`AMPCSSequence` is a derived class of `CmdSequencer::Sequence`.
+It loads, validates, and runs AMPCS-compatible sequence files.
+
+<a name="File_Format"></a>
+## 1 File Format
+
+A sequence file consists of a 32-bit sequence header followed by
+record data. The record data size is bounded by the buffer
+allocated to the sequence at initialization.
+
+The record data consists of one or more records. A file with zero records
+is rejected at load time: `CS_NoRecords` is emitted and the load fails.
+Each record has the following format:
+
+Record Field | Size in Bytes | Description
+------------ | ------------- | -----------
+Time Flag    | 1             | Either 0x0 denoting absolute time or 0xFF denoting relative time
+Time         | 4             | The time in seconds
+CMD Length   | 2             | The size in bytes of the Command field
+Command      | bounded by `FW_COM_BUFFER_MAX_SIZE` minus the translated prefix (packet descriptor and opcode zero-extension bytes) | A serialized command in F Prime format, with a 16-bit opcode
+
+## 2 Implementation
+
+The `AMPCSSequence` class implements the virtual functions of
+`CmdSequencer::Sequence` as follows.
+
+<a name="loadFile"></a>
+### 2.1 `loadFile(`*filename*`)`
+
+1. Read the stored CRC value from *filename*`.CRC32`.
+If *filename*`.CRC32` is longer than `FileNameStringSize` characters, the load
+fails and `CmdSequencer` emits `CS_FileInvalid` with stage `READ_SEQ_CRC` and
+the `Fw::FormatStatus` value as the error (1, `OVERFLOWED`). The same stage
+reports an `Os::File::Status` when reading the CRC file fails and an
+`Fw::SerializeStatus` when decoding its contents fails, so read the error value
+against the enum of the step that failed.
+
+2. Ask the OS for the size of the sequence file, and use it to compute the size
+of the command record data.
+
+3. Read the 32-bit sequence header.
+
+4. Read the command record data into a serial buffer *B*. 
+
+5. Compute the CRC value of the binary file and check it against the stored value.
+
+6. Validate the header time base and time context against the current
+system time (don't-care values always pass).
+
+7. Check that the format of the records is valid according to the binary format
+specified in [File Format](#File_Format).
+
+8. Fill in `m_header` as follows:
+
+    * `m_fileSize`: The size of the command record data, computed in item 2 above.
+
+    * `m_numRecords`: Count the records when validating them.
+
+    * `m_timeBase`: Use 0xFFFF (don't care).
+
+    * `m_timeContext`: Use 0xFF (don't care).
+
+### 2.2 `hasMoreRecords`
+
+Return `true` if and only if *B* has more data.
+
+### 2.3 `nextRecord`
+
+Deserialize and return the next record stored in the serial buffer.
+The deserialized record contains the following binary data in its 
+argument field:
+
+Field             | Size in Bytes                    | Value
+----------------- | -------------------------------- | -----------------
+Packet Descriptor | sizeof(FwPacketDescriptorType)   | `Fw::ComPacketType::FW_PACKET_COMMAND`
+Opcode            | sizeof(FwOpcodeType)             | The opcode stored in bytes 0-1 of the serial record, zero-extended to sizeof(FwOpcodeType) bytes
+Arguments         | Variable                         | Bytes 2-end of the serial record
+
+### 2.4 `reset`
+
+Reset *B* for deserialization.
+
+### 2.5 `clear`
+
+Reset *B* for serialization.

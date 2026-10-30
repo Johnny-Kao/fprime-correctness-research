@@ -1,0 +1,32 @@
+#ifndef FW_STATEMENT_BUFFER_HPP
+#define FW_STATEMENT_BUFFER_HPP
+
+#include <Fw/FPrimeBasicTypes.hpp>
+#include <Fw/Types/Serializable.hpp>
+
+namespace Fw {
+
+class StatementArgBuffer : public LinearBufferBase {
+  public:
+    enum { SERIALIZED_SIZE = STATIC_SERIALIZED_SIZE(FW_STATEMENT_ARG_BUFFER_MAX_SIZE) };
+
+    StatementArgBuffer(const U8* args, FwSizeType size);
+    StatementArgBuffer();
+    StatementArgBuffer(const StatementArgBuffer& other);
+    virtual ~StatementArgBuffer();
+    StatementArgBuffer& operator=(const StatementArgBuffer& other);
+
+    DEPRECATED(Serializable::SizeType getBuffCapacity() const, "Use getCapacity() instead");
+
+    bool operator==(const StatementArgBuffer& other) const;
+
+#if FW_SERIALIZABLE_TO_STRING
+    void toString(Fw::StringBase& text) const;
+#endif
+  private:
+    U8 m_bufferData[FW_STATEMENT_ARG_BUFFER_MAX_SIZE];  // command argument buffer
+};
+
+}  // namespace Fw
+
+#endif

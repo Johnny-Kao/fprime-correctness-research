@@ -1,0 +1,118 @@
+/*
+ * \author: Tim Canham
+ * \file:
+ * \brief
+ *
+ * This file implements the PassiveRateGroup component,
+ * which invokes a set of components the comprise the rate group.
+ *
+ *   Copyright 2014-2015, by the California Institute of Technology.
+ *   ALL RIGHTS RESERVED. United States Government Sponsorship
+ *   acknowledged.
+ */
+
+#ifndef SVC_PASSIVERATEGROUP_IMPL_HPP
+#define SVC_PASSIVERATEGROUP_IMPL_HPP
+
+#include <Fw/DataStructures/Array.hpp>
+#include <Fw/Deprecate.hpp>
+#include <Svc/PassiveRateGroup/PassiveRateGroupComponentAc.hpp>
+#include <atomic>
+
+namespace Svc {
+
+//! \class PassiveRateGroupImpl
+//! \brief Executes a set of components as part of a rate group
+//!
+//! PassiveRateGroup takes an input cycle call to begin the rate group cycle.
+//! It calls each output port in succession and passes the value in the context
+//! array at the index corresponding to the output port number. It keeps track of the execution
+//! time of the rate group and detects overruns.
+//!
+
+class PassiveRateGroup final : public PassiveRateGroupComponentBase {
+    // Allow unit tests to access private members for testing
+    friend class PassiveRateGroupTester;
+
+  public:
+    static constexpr FwIndexType CONNECTION_COUNT_MAX = NUM_RATEGROUPMEMBEROUT_OUTPUT_PORTS;
+
+    //! Array of context values for rate group members, indexed by output port number
+    using ContextArray = Fw::Array<U32, CONNECTION_COUNT_MAX>;
+
+    //!  \brief PassiveRateGroupImpl constructor
+    //!
+    //!  The constructor of the class clears all the flags and copies the
+    //!  contents of the context array to private storage.
+    //!
+    //!  \param compName Name of the component
+    explicit PassiveRateGroup(const char* compName);  //!  \brief PassiveRateGroupImpl initialization function
+
+    //!  \brief PassiveRateGroup configuration function
+    //!
+    //!  The configuration function takes an array of context values to pass to
+    //!  members of the rate group.
+    //!
+    //!  \param contexts Array of context values that will be sent to each member component.
+    //!         The index of the array corresponds to the output port number.
+    //!  \param rawTimeSource Timer source for cycle time measurements. WARNING: Only the end
+    //!         timestamp uses this source; the start timestamp comes from the cycle driver
+    //!         (typically RAWTIME_DEFAULT). Non-default values produce incorrect timing unless
+    //!         the cycle driver is modified to use the same source.
+    void configure(const ContextArray& contexts, const Os::RawTimeSource rawTimeSource = Os::RAWTIME_DEFAULT);
+
+    //!  \brief PassiveRateGroup configuration function
+    //!
+    //!  The configuration function takes an array of context values to pass to
+    //!  members of the rate group.
+    //!
+    //!  \param contexts Array of integers that contain the context values that will be sent
+    //!         to each member component. The index of the array corresponds to the
+    //!         output port number.
+    //!  \param numContexts The number of elements in the context array.
+    DEPRECATED(void configure(const U32 contexts[], const FwIndexType numContexts),
+               "Use configure(const PassiveRateGroup::ContextArray& contexts) instead");
+
+    //!  \brief PassiveRateGroupImpl destructor
+    //!
+    //!  The destructor of the class is empty
+    ~PassiveRateGroup();
+
+  private:
+    //!  \brief Input cycle port handler
+    //!
+    //!  The cycle port handler calls each component in the rate group in turn,
+    //!  passing the context value. It computes the execution time each cycle,
+    //!  and writes it to a telemetry value if it reaches a maximum time
+    //!
+    //!  \param portNum incoming port call. For this class, should always be zero
+    //!  \param cycleStart value stored by the cycle driver, used to compute execution time.
+    void CycleIn_handler(FwIndexType portNum, Os::RawTime& cycleStart) override;
+
+    //!  \brief Command handler for CLEAR_STATISTICS
+    //!
+    //!  Clears all port cycle time high water marks and max cycle time to zero
+    //!
+    //!  \param opCode The command opcode
+    //!  \param cmdSeq The command sequence number
+    void CLEAR_STATISTICS_cmdHandler(FwOpcodeType opCode, U32 cmdSeq) override;
+
+    //!  \brief Create a RawTime object using the configured raw time source
+    //!
+    //!  Helper method to create RawTime objects that use the same timer source
+    //!  as this PassiveRateGroup component.
+    //!
+    //!  \return RawTime object configured with m_rawTimeSource
+    Os::RawTime createRawTime() const;
+
+    U32 m_cycles;                //!< cycles executed (no protection needed - single writer)
+    std::atomic<U32> m_maxTime;  //!< maximum execution time in microseconds (atomic for ISR safety)
+    std::atomic<U32> m_portCycleTimeHWMUsec[NUM_RATEGROUPMEMBEROUT_OUTPUT_PORTS];  //!< HWM per port in microseconds
+    Os::RawTimeSource m_rawTimeSource;                                             //!< time source set by client
+    FwIndexType m_numContexts;                                                     //!< number of contexts
+    U32 m_contexts[NUM_RATEGROUPMEMBEROUT_OUTPUT_PORTS];  //!< Must match number of output ports
+};
+
+}  // namespace Svc
+
+#endif

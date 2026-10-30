@@ -1,0 +1,19 @@
+register_fprime_module(
+  AUTOCODER_INPUTS
+    "${CMAKE_CURRENT_LIST_DIR}/Dp.fpp"
+  SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/DpContainer.cpp"
+  HEADERS
+    "${CMAKE_CURRENT_LIST_DIR}/DpContainer.hpp"
+  DEPENDS
+    Utils_Hash
+)
+
+register_fprime_ut(
+  AUTOCODER_INPUTS
+    "${CMAKE_CURRENT_LIST_DIR}/Dp.fpp"
+  SOURCES
+    "${CMAKE_CURRENT_LIST_DIR}/test/ut/TestMain.cpp"
+  DEPENDS
+    STest
+)

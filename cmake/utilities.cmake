@@ -1,0 +1,786 @@
+####
+# utilities.cmake:
+#
+# Utility and support functions for the fprime CMake build system.
+####
+include_guard()
+include(global_interface)
+set_property(GLOBAL PROPERTY C_CPP_ASM_REGEX ".*\.(c|cpp|cc|cxx|S|asm)$")
+
+####
+# Function `sort_buildable_from_non_buildable_sources`:
+#
+# Sorts C/C++ "buildable" sources from other sources. This uses the GLOBAL property C_CPP_ASM_REGEX to
+# determine how to sort. Ideally users would use SOURCES and AUTOCODER_INPUTS to distinguish but this
+# provides some backwards compatibility with the merged SOURCE_FILES variable.
+#
+# - **BUILDABLE_SOURCE_OUTPUT**: output name for buildable sources to be set in parent scope
+# - **NON_BUILDABLE_SOURCE_OUTPUT**: output name for non-buildable sources to be set in parent scope
+####
+function(sort_buildable_from_non_buildable_sources BUILDABLE_SOURCE_OUTPUT NON_BUILDABLE_SOURCE_OUTPUT)
+    get_property(SORT_REGEX GLOBAL PROPERTY C_CPP_ASM_REGEX )
+    set(CPP_LIST_NAME ${ARGN})
+    set(NON_CPP_LIST_NAME ${ARGN})
+    list(FILTER CPP_LIST_NAME INCLUDE REGEX "${SORT_REGEX}")
+    list(FILTER NON_CPP_LIST_NAME EXCLUDE REGEX "${SORT_REGEX}")
+    set("${BUILDABLE_SOURCE_OUTPUT}" ${CPP_LIST_NAME} PARENT_SCOPE)
+    set("${NON_BUILDABLE_SOURCE_OUTPUT}" ${NON_CPP_LIST_NAME} PARENT_SCOPE)
+endfunction()
+
+####
+# Macro `clear_historical_variables`:
+#
+# Clears old variables `MOD_DEPS`, `SOURCE_FILES`, `HEADER_FILES`, etc. from the scope of the
+# caller. This removes accidental uses of these variables within the refactored system from this
+# scope and below.
+#
+# This is a macro to ensure the caller's scope is affected.
+#
+# **ARGN:** passed to the `unset` calls (for things like PARENT_SCOPE)
+####
+function(clear_historical_variables)
+    unset(SOURCE_FILES ${ARGN})
+    unset(MOD_DEPS ${ARGN})
+    unset(HEADER_FILES ${ARGN})
+    unset(UT_SOURCE_FILES ${ARGN})
+    unset(UT_MOD_DEPS ${ARGN})
+    unset(UT_HEADER_FILES ${ARGN})
+endfunction()
+
+####
+# Function `plugin_name`:
+#
+# From a plugin include path retrieve the plugin name. This is the name without any .cmake extension.
+#
+# INCLUDE_PATH: path to plugin
+# OUTPUT_VARIABLE: variable to set in caller's scope with result
+####
+function(plugin_name INCLUDE_PATH OUTPUT_VARIABLE)
+    get_filename_component(TEMP_NAME "${INCLUDE_PATH}" NAME_WE)
+    set("${OUTPUT_VARIABLE}" ${TEMP_NAME} PARENT_SCOPE)
+endfunction(plugin_name)
+
+####
+# Function `plugin_include_helper`:
+#
+# Designed to help include API files (targets, autocoders) in an efficient way within CMake. This function imports a
+# CMake file and defines a `dispatch_<function>(PLUGIN_NAME ...)` function for each function name in ARGN. Thus users
+# of the imported plugin can call `dispatch_<function>(PLUGIN_NAME ...)` to dispatch a function as implemented in a
+# plugin.
+#
+# OUTPUT_VARIABLE: set with the plugin name that has last been included
+# INCLUDE_PATH: path to file to include
+####
+function(plugin_include_helper OUTPUT_VARIABLE INCLUDE_PATH)
+    plugin_name("${INCLUDE_PATH}" PLUGIN_NAME)
+    foreach(PLUGIN_FUNCTION IN LISTS ARGN)
+        # Include the file if we have not found the prefixed function name yet
+        if (NOT COMMAND "${PLUGIN_NAME}_${PLUGIN_FUNCTION}")
+            include("${INCLUDE_PATH}")
+        endif()
+    endforeach()
+    set("${OUTPUT_VARIABLE}" "${PLUGIN_NAME}" PARENT_SCOPE)
+endfunction(plugin_include_helper)
+
+####
+# starts_with:
+#
+# Check if the string input starts with the given prefix. Sets OUTPUT_VAR to TRUE when it does and sets OUTPUT_VAR to
+# FALSE when it does not. OUTPUT_VAR is the name of the variable in PARENT_SCOPE that will be set.
+#
+# Note: regexs in CMake are known to be inefficient. Thus `starts_with` and `ends_with` are implemented without them
+# in order to ensure speed.
+#
+# OUTPUT_VAR: variable to set
+# STRING: string to check
+# PREFIX: expected ending
+####
+function(starts_with OUTPUT_VAR STRING PREFIX)
+    set("${OUTPUT_VAR}" FALSE PARENT_SCOPE)
+    string(LENGTH "${PREFIX}" PREFIX_LENGTH)
+    string(SUBSTRING "${STRING}" "0" "${PREFIX_LENGTH}" FOUND_PREFIX)
+    # Check the substring
+    if (FOUND_PREFIX STREQUAL "${PREFIX}")
+        set("${OUTPUT_VAR}" TRUE PARENT_SCOPE)
+    endif()
+endfunction(starts_with)
+
+####
+# ends_with:
+#
+# Check if the string input ends with the given suffix. Sets OUTPUT_VAR to TRUE when it does and  sets OUTPUT_VAR to
+# FALSE when it does not. OUTPUT_VAR is the name of the variable in PARENT_SCOPE that will be set.
+#
+# Note: regexs in CMake are known to be inefficient. Thus `starts_with` and `ends_with` are implemented without them
+# in order to ensure speed.
+#
+# OUTPUT_VAR: variable to set
+# STRING: string to check
+# SUFFIX: expected ending
+####
+function(ends_with OUTPUT_VAR STRING SUFFIX)
+    set("${OUTPUT_VAR}" FALSE PARENT_SCOPE)
+    string(LENGTH "${STRING}" INPUT_LENGTH)
+    string(LENGTH "${SUFFIX}" SUFFIX_LENGTH)
+    if (INPUT_LENGTH GREATER_EQUAL SUFFIX_LENGTH)
+        # Calculate the substring of suffix length at end of string
+        math(EXPR START "${INPUT_LENGTH} - ${SUFFIX_LENGTH}")
+        string(SUBSTRING "${STRING}" "${START}" "${SUFFIX_LENGTH}" FOUND_SUFFIX)
+        # Check the substring
+        if (FOUND_SUFFIX STREQUAL "${SUFFIX}")
+            set("${OUTPUT_VAR}" TRUE PARENT_SCOPE)
+        endif()
+    endif()
+endfunction(ends_with)
+
+####
+# init_variables:
+#
+# Initialize all variables passed in to empty variables in the calling scope.
+####
+function(init_variables)
+    foreach (VARIABLE IN LISTS ARGN)
+        set(${VARIABLE} "" PARENT_SCOPE)
+    endforeach()
+endfunction(init_variables)
+
+####
+# normalize_paths:
+#
+# Take in any number of lists of paths and normalize the paths returning a single list.
+# OUTPUT_NAME: name of variable to set in parent scope
+####
+function(normalize_paths OUTPUT_NAME)
+    set(OUTPUT_LIST)
+    # Loop over the list and check
+    foreach (PATH_LIST IN LISTS ARGN)
+        foreach(PATH IN LISTS PATH_LIST)
+            get_filename_component(PATH "${PATH}" ABSOLUTE)
+            list(APPEND OUTPUT_LIST "${PATH}")
+        endforeach()
+    endforeach()
+    set(${OUTPUT_NAME} "${OUTPUT_LIST}" PARENT_SCOPE)
+endfunction(normalize_paths)
+
+####
+# resolve_dependencies:
+#
+# Sets OUTPUT_VAR in parent scope to be the set of dependencies in canonical form: relative path from root replacing
+# directory separators with "_".  E.g. fprime/Fw/Time becomes Fw_Time.
+#
+# OUTPUT_VAR: variable to fill in parent scope
+# ARGN: list of dependencies to resolve
+####
+function(resolve_dependencies OUTPUT_VAR)
+    # Resolve all dependencies
+    set(RESOLVED)
+    foreach(DEPENDENCY IN LISTS ARGN)
+        # No resolution is done on linker-only dependencies
+        linker_only(LINKER_ONLY "${DEPENDENCY}")
+        if (LINKER_ONLY)
+            list(APPEND RESOLVED "${DEPENDENCY}")
+            continue()
+        endif()
+        get_module_name(${DEPENDENCY})
+        if (NOT MODULE_NAME IN_LIST RESOLVED)
+            list(APPEND RESOLVED "${MODULE_NAME}")
+        endif()
+    endforeach()
+    set(${OUTPUT_VAR} "${RESOLVED}" PARENT_SCOPE)
+endfunction(resolve_dependencies)
+
+####
+# Function `is_target_real`:
+#
+# Does this target represent a real item (executable, library)? OUTPUT is set to TRUE when real, and FALSE otherwise.
+# Non-real targets include TARGET_TYPE=UTILITY and ALIASED_TARGET.
+#
+# OUTPUT: variable to set
+# TEST_TARGET: target to set
+####
+function(is_target_real OUTPUT TEST_TARGET)
+    if (TARGET "${DEPENDENCY}")
+        get_target_property(TARGET_TYPE "${DEPENDENCY}" TYPE)
+        # Make sure this is not a utility target
+        get_target_property(IS_ALIAS "${TEST_TARGET}" ALIASED_TARGET)
+        if (NOT TARGET_TYPE STREQUAL "UTILITY" AND NOT IS_ALIAS)
+            set("${OUTPUT}" TRUE PARENT_SCOPE)
+            return()
+        endif()
+    endif()
+    set("${OUTPUT}" FALSE PARENT_SCOPE)
+endfunction()
+
+####
+# Function `is_target_library`:
+#
+# Does this target represent a real library? OUTPUT is set to TRUE when real, and FALSE otherwise.
+#
+# OUTPUT: variable to set
+# TEST_TARGET: target to set
+####
+function(is_target_library OUTPUT TEST_TARGET)
+    set("${OUTPUT}" FALSE PARENT_SCOPE)
+    if (TARGET "${TEST_TARGET}")
+        get_target_property(TARGET_TYPE "${TEST_TARGET}" TYPE)
+        ends_with(IS_LIBRARY "${TARGET_TYPE}" "_LIBRARY")
+        set("${OUTPUT}" "${IS_LIBRARY}" PARENT_SCOPE)
+    endif()
+endfunction()
+
+####
+# linker_only:
+#
+# Checks if a given dependency should be supplied to the linker only. These will not be supplied as CMake dependencies
+# but will be supplied as link libraries. These tokens are of several types:
+#
+# 1. Linker flags: starts with -l
+# 2. Existing Files: accounts for preexisting libraries shared and otherwise
+#
+# OUTPUT_VAR: variable to set in PARENT_SCOPE to TRUE/FALSE
+# TOKEN: token to check if "linker only"
+####
+function(linker_only OUTPUT_VAR TOKEN)
+    set("${OUTPUT_VAR}" FALSE PARENT_SCOPE)
+    starts_with(IS_LINKER_FLAG "${TOKEN}" "-l")
+    if (IS_LINKER_FLAG OR (EXISTS "${TOKEN}" AND NOT IS_DIRECTORY "${TOKEN}"))
+        set("${OUTPUT_VAR}" TRUE PARENT_SCOPE)
+    endif()
+endfunction()
+
+
+
+####
+# Function `get_nearest_build_root`:
+#
+# Finds the nearest location in FPRIME_LOCATIONS to the given path. This is used for calculating module names, include
+# paths, and relative asserts. FPRIME_LOCATIONS is derived from the global interface target.
+#
+# Note: historically these were called "build roots".
+#
+# - **DIRECTORY_PATH:** path to detect nearest build root
+# Return: nearest parent from FPRIME_LOCATIONS as read from the global interface target property FPRIME_LOCATIONS
+####
+function(get_nearest_build_root DIRECTORY_PATH)
+    resolve_path_variables(DIRECTORY_PATH)
+    set(FOUND_BUILD_ROOT "${DIRECTORY_PATH}")
+    set(LAST_REL "${DIRECTORY_PATH}")
+
+    # Read the know locations (up to this point) and look for the closest one.
+    get_property(FPRIME_ALL_LOCATIONS TARGET "${FPRIME_GLOBAL_INTERFACE_TARGET}" PROPERTY FPRIME_LOCATIONS)
+    foreach(FPRIME_BUILD_LOC IN LISTS FPRIME_ALL_LOCATIONS)
+        get_filename_component(FPRIME_BUILD_LOC "${FPRIME_BUILD_LOC}" ABSOLUTE)
+        file(RELATIVE_PATH TEMP_MODULE ${FPRIME_BUILD_LOC} ${DIRECTORY_PATH})
+        string(LENGTH "${LAST_REL}" LEN1)
+        string(LENGTH "${TEMP_MODULE}" LEN2)
+        if (LEN2 LESS LEN1 AND TEMP_MODULE MATCHES "^[^./].*")
+            set(FOUND_BUILD_ROOT "${FPRIME_BUILD_LOC}")
+            set(LAST_REL "${TEMP_MODULE}")
+        endif()
+    endforeach()
+    # Report when this file is not anchored under any known location.
+    if ("${FOUND_BUILD_ROOT}" STREQUAL "${DIRECTORY_PATH}")
+        message(FATAL_ERROR "No build root found for: ${DIRECTORY_PATH}")
+    endif()
+    set(FPRIME_CLOSEST_BUILD_ROOT "${FOUND_BUILD_ROOT}" PARENT_SCOPE)
+endfunction()
+
+####
+# Function `get_module_name`:
+#
+# Takes a path, or something path-like and returns the module's name. This breaks down as the
+# following:
+#
+#  1. If passed a path, the module name is the '_'ed variant of the relative path from BUILD_ROOT
+#  2. If passes something which does not exist on the file system, it is just '_'ed
+#
+# i.e. ${BUILD_ROOT}/Svc/EventManager becomes Svc_EventManager
+#      Svc/EventManager also becomes Svc_EventManager
+#
+# - **DIRECTORY_PATH:** (optional) path to infer MODULE_NAME from. Default: CMAKE_CURRENT_LIST_DIR
+# - **Return: MODULE_NAME** (set in parent scope)
+####
+function(get_module_name)
+    # Set optional arguments
+    if (ARGN)
+        set(DIRECTORY_PATH "${ARGN}")
+    else()
+        set(DIRECTORY_PATH "${CMAKE_CURRENT_LIST_DIR}")
+    endif()
+    resolve_path_variables(DIRECTORY_PATH)
+    # If DIRECTORY_PATH exists, then find its offset from BUILD_ROOT to calculate the module
+    # name. If it does not exist, then it is assumed to be an offset already and is carried
+    # forward in the calculation.
+    if (EXISTS ${DIRECTORY_PATH} AND IS_ABSOLUTE ${DIRECTORY_PATH})
+        # Module names a based on the current directory, not a file
+        if (NOT IS_DIRECTORY ${DIRECTORY_PATH})
+            get_filename_component(DIRECTORY_PATH "${DIRECTORY_PATH}" DIRECTORY)
+        endif()
+        # Get path name relative to the root directory
+        get_nearest_build_root(${DIRECTORY_PATH})
+        File(RELATIVE_PATH TEMP_MODULE_NAME ${FPRIME_CLOSEST_BUILD_ROOT} ${DIRECTORY_PATH})
+    else()
+        set(TEMP_MODULE_NAME ${DIRECTORY_PATH})
+    endif()
+    # Replace slash with underscore to have valid name
+    string(REPLACE "/" "_" TEMP_MODULE_NAME ${TEMP_MODULE_NAME})
+    set(MODULE_NAME ${TEMP_MODULE_NAME} PARENT_SCOPE)
+endfunction(get_module_name)
+
+####
+# Function `get_expected_tool_version`:
+#
+# Gets the expected tool version named using version identifier VID to name the tools package
+# file. This will be returned via the variable supplied in FILL_VARIABLE setting it in PARENT_SCOPE.
+####
+function(get_expected_tool_version VID FILL_VARIABLE)
+    find_program(TOOLS_CHECK NAMES fprime-version-check REQUIRED)
+
+    # Try project root as a source
+    set(REQUIREMENT_FILE "${FPRIME_PROJECT_ROOT}/requirements.txt")
+    if (EXISTS "${REQUIREMENT_FILE}")
+        execute_process(COMMAND "${TOOLS_CHECK}" "${VID}" "${REQUIREMENT_FILE}" OUTPUT_VARIABLE VERSION_TEXT ERROR_VARIABLE ERRORS RESULT_VARIABLE RESULT_OUT OUTPUT_STRIP_TRAILING_WHITESPACE)
+        fprime_cmake_debug_message("[VERSION] Could not detect version from: ${REQUIREMENT_FILE}. ${ERRORS}")
+        if (RESULT_OUT EQUAL 0)
+            set("${FILL_VARIABLE}" "${VERSION_TEXT}" PARENT_SCOPE)
+            return()
+        endif()
+    endif()
+    # Fallback to requirements.txt in fprime
+    set(REQUIREMENT_FILE "${FPRIME_FRAMEWORK_PATH}/requirements.txt")
+    execute_process(COMMAND "${TOOLS_CHECK}" "${VID}" "${REQUIREMENT_FILE}" OUTPUT_VARIABLE VERSION_TEXT ERROR_VARIABLE ERRORS RESULT_VARIABLE RESULT_OUT OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if (RESULT_OUT EQUAL 0)
+        set("${FILL_VARIABLE}" "${VERSION_TEXT}" PARENT_SCOPE)
+        return()
+    endif()
+    fprime_cmake_warning("[VERSION] Could not detect version from: ${REQUIREMENT_FILE}. ${ERRORS}. Skipping check.")
+    set("${FILL_VARIABLE}" "" PARENT_SCOPE)
+endfunction(get_expected_tool_version)
+
+####
+# Function `set_assert_flags`:
+#
+# Adds a -DASSERT_FILE_ID=(First 8 digits of MD5) to each source file, and records the output in
+# hashes.txt. This allows for asserts on file ID not string. Also adds the -DASSERT_RELATIVE_PATH
+# flag for handling relative path asserts.
+####
+function(set_assert_flags SRC)
+    if (NOT SRC MATCHES "^[$].*") # skip if generator expression
+        get_nearest_build_root("${SRC}") # sets FPRIME_CLOSEST_BUILD_ROOT in current scope
+    endif()
+    get_filename_component(FPRIME_CLOSEST_BUILD_ROOT_ABS "${FPRIME_CLOSEST_BUILD_ROOT}" ABSOLUTE)
+    get_filename_component(FPRIME_PROJECT_ROOT_ABS "${FPRIME_PROJECT_ROOT}" ABSOLUTE)
+    string(REPLACE "${FPRIME_CLOSEST_BUILD_ROOT_ABS}/" "" SHORT_SRC "${SRC}")
+    string(REPLACE "${FPRIME_PROJECT_ROOT_ABS}/" "" SHORT_SRC "${SHORT_SRC}")
+
+    string(MD5 HASH_VAL "${SHORT_SRC}")
+    string(SUBSTRING "${HASH_VAL}" 0 8 HASH_32)
+    file(APPEND "${CMAKE_BINARY_DIR}/hashes.txt" "${SHORT_SRC}: 0x${HASH_32}\n")
+    SET_SOURCE_FILES_PROPERTIES(${SRC} PROPERTIES COMPILE_FLAGS "-DASSERT_FILE_ID=0x${HASH_32} -DASSERT_RELATIVE_PATH='\"${SHORT_SRC}\"'")
+endfunction(set_assert_flags)
+
+
+####
+# Function `print_property`:
+#
+# Prints a given property for the module.
+# - **TARGET**: target to print properties
+# - **PROPERTY**: name of property to print
+####
+function (print_property TARGET PROPERTY)
+    get_target_property(OUT "${TARGET}" "${PROPERTY}")
+    if (NOT OUT MATCHES ".*-NOTFOUND")
+        fprime_cmake_status("[F´ Module] ${TARGET} ${PROPERTY}:")
+        foreach (PROPERTY IN LISTS OUT)
+            fprime_cmake_status("[F´ Module]    ${PROPERTY}")
+        endforeach()
+    endif()
+endfunction(print_property)
+
+####
+# Function `introspect`:
+#
+# Prints the dependency list of the module supplied as well as the include directories.
+#
+# - **MODULE_NAME**: module name to print dependencies
+####
+function(introspect MODULE_NAME)
+    print_property("${MODULE_NAME}" SOURCES)
+    print_property("${MODULE_NAME}" SUPPLIED_HEADERS)
+    print_property("${MODULE_NAME}" INCLUDE_DIRECTORIES)
+    print_property("${MODULE_NAME}" LINK_LIBRARIES)
+    print_property("${MODULE_NAME}" INTERFACE_LINK_LIBRARIES)
+endfunction(introspect)
+
+####
+# Function `execute_process_or_fail`:
+#
+# Calls CMake's `execute_process` with the arguments passed in via ARGN. This call is wrapped to print out the command
+# line invocation when CMAKE_DEBUG_OUTPUT is set ON, and will check that the command processes correctly.  Any error
+# message is output should the command fail. No handling is done of standard error.
+#
+# Errors are determined by checking the process's return code where a FATAL_ERROR is produced on non-zero.
+#
+# - **ERROR_MESSAGE**: message to output should an error occurs
+####
+function(execute_process_or_fail ERROR_MESSAGE)
+    # Quiet standard output unless we are doing verbose output (handled below)
+    set(OUTPUT_ARGS OUTPUT_QUIET)
+    # Print the invocation if debug output is set
+    set(OUTPUT_ARGS)
+    set(COMMAND_AS_STRING "")
+    foreach(ARG IN LISTS ARGN)
+        set(COMMAND_AS_STRING "${COMMAND_AS_STRING}\"${ARG}\" ")
+    endforeach()
+    fprime_cmake_debug_message("[cli] ${COMMAND_AS_STRING}")
+    # Ninja pipes stderr to stdout so remove quiet output to see errors
+    if (CMAKE_GENERATOR MATCHES "Ninja")
+        set(OUTPUT_ARGS)
+    endif()
+    execute_process(
+        COMMAND ${ARGN}
+        RESULT_VARIABLE RETURN_CODE
+        OUTPUT_VARIABLE STANDARD_OUTPUT
+        ERROR_VARIABLE STANDARD_ERROR
+        ERROR_STRIP_TRAILING_WHITESPACE
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ${OUTPUT_ARGS}
+    )
+    if (NOT RETURN_CODE EQUAL 0)
+        set(FATAL_MESSAGE "${ERROR_MESSAGE}:\n${STANDARD_ERROR}")
+        # Ninja pipes stderr to stdout so we have to print stdout to see errors
+        if (CMAKE_GENERATOR MATCHES "Ninja")
+            string(APPEND FATAL_MESSAGE "\n${STANDARD_OUTPUT}")
+        endif()
+        message(FATAL_ERROR "${FATAL_MESSAGE}")
+    endif()
+endfunction()
+
+####
+# Function `append_list_property`:
+#
+# Appends the NEW_ITEM to a property. ARGN is a set of arguments that are passed into the get and set property calls.
+# This function calls get_property with ARGN appends NEW_ITEM to the result and then turns around and calls set_property
+# with the new list. Callers **should not** supply the variable name argument to get_property.
+#
+# Duplicate entries are removed.
+#
+# Args:
+# - `NEW_ITEM`: item to append to the property
+# - `ARGN`: list of arguments forwarded to get and set property calls.
+####
+function(append_list_property NEW_ITEM)
+    get_property(LOCAL_COPY ${ARGN})
+    list(APPEND LOCAL_COPY ${NEW_ITEM})
+    list(REMOVE_DUPLICATES LOCAL_COPY)
+    set_property(${ARGN} "${LOCAL_COPY}")
+endfunction()
+
+
+
+####
+# Function `get_fprime_library_option_string`:
+#
+# Returns a standard library option string from a name. Library option strings are derived from the directory and
+# converted to a set of valid characters: [A-Z0-9_]. Alphabetic characters are made uppercase, numeric characters are
+# maintained, and other characters are replaced with _.
+#
+# If multiple directories convert to the same name, these are effectively merged with respect to library options.
+#
+# OUTPUT_VAR: output variable to be set in parent scope
+# LIBRARY_NAME: library name to convert to option
+####
+function(get_fprime_library_option_string OUTPUT_VAR LIBRARY_NAME)
+    string(TOUPPER "${LIBRARY_NAME}" LIBRARY_NAME_UPPER)
+    string(REGEX REPLACE "[^A-Z0-9_]" "_" LIBRARY_OPTION "${LIBRARY_NAME_UPPER}")
+    set("${OUTPUT_VAR}" "${LIBRARY_OPTION}" PARENT_SCOPE)
+endfunction(get_fprime_library_option_string)
+
+####
+# Function `resolve_path_variables`:
+#
+# Resolve paths updating parent scope.  ARGN should contain a list of variables to update.
+#
+# ARGN: list of variables to update
+####
+function(resolve_path_variables)
+    # Loop through all variables
+    foreach (INPUT_NAME IN LISTS ARGN)
+        set(NEW_LIST)
+        # Loop through each item in INPUT_NAME
+        foreach(UNRESOLVED IN LISTS ${INPUT_NAME})
+            get_filename_component(ABSOLUTE_UNRESOLVED "${UNRESOLVED}" ABSOLUTE)
+            # If it is a path, resolve it
+            if (EXISTS ${ABSOLUTE_UNRESOLVED})
+                get_filename_component(RESOLVED "${ABSOLUTE_UNRESOLVED}" REALPATH)
+            else()
+                set(RESOLVED "${UNRESOLVED}")
+            endif()
+            list(APPEND NEW_LIST "${RESOLVED}")
+        endforeach()
+        set("${INPUT_NAME}" "${NEW_LIST}" PARENT_SCOPE)
+    endforeach()
+endfunction(resolve_path_variables)
+
+####
+# Function `fprime_glob_ordered`:
+#
+# Runs file(GLOB) for each pattern in a list individually and appends results in order. This
+# preserves the priority of earlier patterns over later ones, unlike a single GLOB call which
+# returns all results in lexicographic order regardless of pattern ordering. Duplicates are removed
+# while preserving the order of first occurrence. Uses GLOB (not GLOB_RECURSE) so that wildcards
+# match a single directory level only.
+#
+# - **OUTPUT_VAR**: variable name to store the accumulated results in (set in PARENT_SCOPE)
+# - **ARGN**: glob patterns to search, in priority order
+####
+function(fprime_glob_ordered OUTPUT_VAR)
+    set(_ACCUMULATED)
+    foreach(_PATTERN IN LISTS ARGN)
+        file(GLOB _MATCHES "${_PATTERN}")
+        list(APPEND _ACCUMULATED ${_MATCHES})
+    endforeach()
+    list(REMOVE_DUPLICATES _ACCUMULATED)
+    set(${OUTPUT_VAR} ${_ACCUMULATED} PARENT_SCOPE)
+endfunction()
+
+####
+# Function `fprime_cmake_fatal_error`:
+#
+# Prints a fatal error message to the user, highlighted with ---- to make it obvious. For multi-line
+# messages, place a \n at the end of the previous message.
+#
+# - **ARGN**: message(s) to print separated by ' 's
+####
+function(fprime_cmake_fatal_error)
+    fprime_cmake_clear_message(FATAL_ERROR ${ARGN})
+endfunction(fprime_cmake_fatal_error)
+
+####
+# Function `fprime_cmake_warning`:
+#
+# Prints a warning message to the user, highlighted with ---- to make it obvious. For multi-line
+# messages, place a \n at the end of the previous message.
+#
+# - **ARGN**: message(s) to print separated by ' 's
+####
+function(fprime_cmake_warning)
+    fprime_cmake_clear_message(WARNING ${ARGN})
+endfunction(fprime_cmake_warning)
+
+####
+# Function `fprime_cmake_status`:
+#
+# Prints a status message to the user that can be quieted with FPRIME_CMAKE_QUIET=ON.
+# - **ARGN**: arguments to CMake's message() function w/o severity level
+####
+function(fprime_cmake_status)
+    if (NOT FPRIME_CMAKE_QUIET)
+        message(STATUS ${ARGN})
+    endif()
+endfunction(fprime_cmake_status)
+
+####
+# Function `fprime_cmake_debug_message`:
+#
+# Prints a debug message.
+#
+# - **MESSAGE**: message to print
+####
+function(fprime_cmake_debug_message MESSAGE)
+    if (CMAKE_DEBUG_OUTPUT)
+        message(STATUS " [DEBUG] ${MESSAGE}")
+    endif()
+endfunction(fprime_cmake_debug_message)
+
+####
+# Function `fprime__cmake_clear_message`:
+#
+# Prints a message to the user, highlighted with ---- to make it obvious and including the list file
+# that is failing. For multi-line messages, place a \n at the end of the previous message.
+#
+# - **SEVERITY**: message severity to use
+# - **ARGN**: message(s) to print separated by ' 's
+####
+function(fprime_cmake_clear_message SEVERITY)
+    string(REPLACE ";" " " MESSAGE "${ARGN}")
+    message("${SEVERITY}" " ----------------------------------------\n"
+                        " ${MESSAGE} in:\n"
+                        "     ${CMAKE_CURRENT_LIST_FILE}\n"
+                        " ----------------------------------------\n")
+endfunction()
+
+####
+# Macro `fprime_cmake_ASSERT`:
+#
+# Checks condition, prints message. This is a macro so the condition is pasted into the message as well as
+# the conditional clause.
+#
+# - **CONDITION**: condition to evaluate with if (${CONDITION})
+####
+macro(fprime_cmake_ASSERT MESSAGE)
+    # Simplify the evaluation of the condition by not placing NOT in front. Just have a no-op if clause
+    # where the else prints the FATAL message.
+    if (${ARGN})
+    else ()
+        string(REPLACE ";" " " FPRIME_INTERNAL_STRING_FROM_ARGN "${ARGN}")
+        message(FATAL_ERROR " ----------------------------------------\n"
+            " Assertion (${FPRIME_INTERNAL_STRING_FROM_ARGN}) failed with message '${MESSAGE}'. In:\n"
+            "     ${CMAKE_CURRENT_FUNCTION_LIST_FILE}:${CMAKE_CURRENT_FUNCTION_LIST_LINE}\n"
+            " ----------------------------------------\n")
+    endif()
+endmacro()
+
+####
+# Function `recurse_target_properties`:
+#
+# Recurses the supplied PROPERTY_NAMES of the CMAKE_BUILD_TARGET_NAME target. Sets three variables TRANSITIVE_LINKS_OUTPUT, EXTERNAL_LINKS_OUTPUT,
+# and NON_EXISTENT_LINKS_OUTPUT. Where TRANSITIVE_LINKS_OUTPUT holds the transitive values of target/links found in those properties (recursively),
+# EXTERNAL_LINKS_OUTPUT holds IMPORTED type targets found in the recursion, and NON_EXISTENT_LINKS_OUTPUT holds unknown/non-target values found
+# (recursively).
+#
+# NON_EXISTENT_LINKS_OUTPUT will include directly linked files, linker flags, and other non-target values.
+#
+# > [!WARNING]
+# > Properties supplied through PROPERTY_NAMES must be composed of mostly target names (e.g. LINK_LIBRARIES, MANUALLY_ADDED_DEPENDENCIES, etc.)
+#
+# - **CMAKE_BUILD_TARGET_NAME**: name of the target in the CMake system
+# - **PROPERTY_NAMES**: list of properties containing other CMake target names to be read recursively
+# - **TRANSITIVE_LINKS_OUTPUT**: name of output to write transitive links/dependencies in PARENT_SCOPE
+# - **EXTERNAL_LINKS_OUTPUT**: name of output to write external (IMPORTED) links/dependencies in PARENT_SCOPE
+# - **NON_EXISTENT_LINKS_OUTPUT**: name of output to write non-target links/dependencies in PARENT_SCOPE
+####
+function(recurse_target_properties CMAKE_BUILD_TARGET_NAME PROPERTY_NAMES TRANSITIVE_LINKS_OUTPUT EXTERNAL_LINKS_OUTPUT NON_EXISTENT_LINKS_OUTPUT)
+    # Recursive leafs:
+    #  1. This is not a known target
+    #  2. This target has not further links
+
+    # If the current item is not a target, tell the parent that this is a nonexistent entity
+    if (NOT TARGET "${CMAKE_BUILD_TARGET_NAME}")
+        set("${NON_EXISTENT_LINKS_OUTPUT}" "${CMAKE_BUILD_TARGET_NAME}" PARENT_SCOPE)
+        set("${TRANSITIVE_LINKS_OUTPUT}" PARENT_SCOPE)
+        set("${EXTERNAL_LINKS_OUTPUT}" PARENT_SCOPE)
+        return()
+    endif()
+    # If the target is imported, tell the parent that this is an external target
+    get_target_property(IMPORTED_TARGET "${CMAKE_BUILD_TARGET_NAME}" IMPORTED)
+    if (IMPORTED_TARGET)
+        set("${NON_EXISTENT_LINKS_OUTPUT}" PARENT_SCOPE)
+        set("${TRANSITIVE_LINKS_OUTPUT}" PARENT_SCOPE)
+	set("${EXTERNAL_LINKS_OUTPUT}" "${CMAKE_BUILD_TARGET_NAME}" PARENT_SCOPE)
+        return()
+    endif()
+    # Read all supplied properties and add them to the list of items to recurse
+    set(PROPERTY_LIST)
+    foreach(PROPERTY_NAME IN LISTS PROPERTY_NAMES)
+        get_target_property(PROPERTY_LIST_LOOPED "${CMAKE_BUILD_TARGET_NAME}" "${PROPERTY_NAME}")
+        if (PROPERTY_LIST_LOOPED)
+            list(APPEND PROPERTY_LIST ${PROPERTY_LIST_LOOPED})
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES PROPERTY_LIST)
+    # When there are no other link libraries below this one, return current target as the singular dependency
+    if (NOT PROPERTY_LIST)
+        set("${NON_EXISTENT_LINKS_OUTPUT}" PARENT_SCOPE)
+        set("${TRANSITIVE_LINKS_OUTPUT}" "${CMAKE_BUILD_TARGET_NAME}" PARENT_SCOPE)
+        set("${EXTERNAL_LINKS_OUTPUT}" PARENT_SCOPE)
+        return()
+    endif()
+    set(PREVIOUSLY_RECURSED ${ARGN} ${CMAKE_BUILD_TARGET_NAME})
+
+    # Look through each current link library using a recursive call
+    set(RECURSED_TRANSITIVE)
+    set(RECURSED_UNKNOWN)
+    set(RECURSED_EXTERNAL)
+    foreach(LINK IN LISTS PROPERTY_LIST)
+        unset(INTERNAL_TRANSITIVE)
+        unset(INTERNAL_UNKNOWN)
+        # Prevent redundant recursion
+        if (NOT LINK IN_LIST PREVIOUSLY_RECURSED AND NOT LINK STREQUAL "")
+            fprime_cmake_ASSERT("'${LINK}' is a null dependency of '${CMAKE_BUILD_TARGET_NAME}'" LINK)
+            # Recurse through each link and append the recursively determined additions to the list
+            # while ensuring there are no duplicates
+            recurse_target_properties("${LINK}" "${PROPERTY_NAMES}" INTERNAL_TRANSITIVE INTERNAL_EXTERNAL INTERNAL_UNKNOWN ${PREVIOUSLY_RECURSED})
+            # The current link must occur in one list or the other
+            fprime_cmake_ASSERT("'${LINK}' must appear in '${INTERNAL_TRANSITIVE}' or '${INTERNAL_UNKNOWN}'"
+		    LINK IN_LIST INTERNAL_TRANSITIVE OR LINK IN_LIST INTERNAL_UNKNOWN OR LINK IN_LIST INTERNAL_EXTERNAL)
+            # Append the lists to the aggregated output
+            list(APPEND RECURSED_TRANSITIVE ${INTERNAL_TRANSITIVE})
+            list(APPEND RECURSED_UNKNOWN ${INTERNAL_UNKNOWN})
+            list(APPEND RECURSED_EXTERNAL ${INTERNAL_EXTERNAL})
+            list(REMOVE_DUPLICATES RECURSED_TRANSITIVE)
+            list(REMOVE_DUPLICATES RECURSED_UNKNOWN)
+            list(REMOVE_DUPLICATES RECURSED_EXTERNAL)
+            # Update previously touched modules
+            list(APPEND PREVIOUSLY_RECURSED ${INTERNAL_TRANSITIVE} ${INTERNAL_UNKNOWN} ${INTERNAL_EXTERNAL})
+            list(REMOVE_DUPLICATES PREVIOUSLY_RECURSED)
+        endif()
+    endforeach()
+    # Return the results of this stage of the recursion
+    set("${NON_EXISTENT_LINKS_OUTPUT}" ${RECURSED_UNKNOWN} PARENT_SCOPE)
+    set("${TRANSITIVE_LINKS_OUTPUT}" ${CMAKE_BUILD_TARGET_NAME} ${RECURSED_TRANSITIVE} PARENT_SCOPE)
+    set("${EXTERNAL_LINKS_OUTPUT}" ${RECURSED_EXTERNAL} PARENT_SCOPE)
+endfunction()
+
+####
+# Function `fprime__internal_target_interceptor`:
+#
+# A function that intercepts calls to target_* functions and translates the scope from PUBLIC to INTERFACE when the
+# target is an INTERFACE target.
+#
+# - **FUNCTION_NAME**: name of the target_* function to intercept
+# - **BUILD_TARGET_NAME**: name of the target to set
+# - **SCOPE**: scope of the target to intercept and change
+# - **ARGN**: arguments to pass to the target_* function
+####
+function(fprime__internal_target_interceptor FUNCTION_NAME BUILD_TARGET_NAME SCOPE)
+    # Get the target type
+    get_target_property(TARGET_TYPE "${BUILD_TARGET_NAME}" TYPE)
+    # If the target is an INTERFACE_LIBRARY, change the scope to INTERFACE
+    if (TARGET_TYPE STREQUAL "INTERFACE_LIBRARY" AND SCOPE STREQUAL "PUBLIC")
+        set(SCOPE INTERFACE)
+    endif()
+    # Call the target_* function with the new scope
+    cmake_language(CALL "${FUNCTION_NAME}" "${BUILD_TARGET_NAME}" "${SCOPE}" ${ARGN})
+endfunction()
+####
+# Function `fprime_target_link_libraries`:
+#
+# This function wraps `target_link_libraries` to ensure that PUBLIC scope additions translate to INTERFACE when
+# the target is an INTERFACE target. This makes it easier to deal with INTERFACE targets.
+#
+# See: target_link_libraries
+####
+function(fprime_target_link_libraries BUILD_TARGET_NAME SCOPE)
+    fprime__internal_target_interceptor("target_link_libraries" "${BUILD_TARGET_NAME}" "${SCOPE}" ${ARGN})
+endfunction()
+
+####
+# Function `fprime_target_include_directories`:
+#
+# This function wraps `target_include_directories` to ensure that PUBLIC scope additions translate to INTERFACE when
+# the target is an INTERFACE target. This makes it easier to deal with INTERFACE targets.
+#
+# See: target_include_directories
+#
+####
+function(fprime_target_include_directories BUILD_TARGET_NAME SCOPE)
+    fprime__internal_target_interceptor("target_include_directories" "${BUILD_TARGET_NAME}" ${SCOPE} ${ARGN})
+endfunction()
+
+####
+# Function `fprime_target_dependencies`:
+#
+# Adds dependencies to the supplied BUILD_TARGET_NAME properly handling scope (see fprime_target_link_libraries). Adding a dependency
+# involves 2 steps:
+# 1. Adding a link dependency from BUILD_TARGET_NAME to supplied dependencies
+# 2. Append supplied dependencies to the FPRIME_DEPENDENCIES property of BUILD_TARGET_NAME
+#
+# - **BUILD_TARGET_NAME**: name of the target to add dependencies to
+# - **SCOPE**: scope of the target to intercept and change from PUBLIC to INTERFACE for INTERFACE_LIBRARY targets targets
+# - **ARGN**: dependencies to add to the target
+####
+function(fprime_target_dependencies BUILD_TARGET_NAME SCOPE)
+    fprime_target_link_libraries("${BUILD_TARGET_NAME}" "${SCOPE}" ${ARGN})
+    append_list_property("${ARGN}" TARGET "${BUILD_TARGET_NAME}" PROPERTY FPRIME_DEPENDENCIES)
+endfunction()

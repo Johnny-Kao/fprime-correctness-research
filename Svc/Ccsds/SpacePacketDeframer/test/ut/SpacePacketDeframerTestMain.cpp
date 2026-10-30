@@ -1,0 +1,73 @@
+// ======================================================================
+// \title  SpacePacketDeframerTestMain.cpp
+// \author thomas-bc
+// \brief  cpp file for SpacePacketDeframer component test main function
+// ======================================================================
+
+#include "STest/Random/Random.hpp"
+#include "SpacePacketDeframerTester.hpp"
+
+TEST(SpacePacketDeframer, testDataReturnPassthrough) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testDataReturnPassthrough();
+}
+
+TEST(SpacePacketDeframer, testNominalDeframing) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testNominalDeframing();
+}
+
+TEST(SpacePacketDeframer, testDeframingIncorrectLength) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testDeframingIncorrectLength();
+}
+
+TEST(SpacePacketDeframer, testPacketDataLengthMaxU16Overflow) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testPacketDataLengthMaxU16Overflow();
+}
+
+// ----------------------------------------------------------------------
+// Tests for graceful handling of undersized buffers
+// ----------------------------------------------------------------------
+
+TEST(SpacePacketDeframer, testBufferExactlyHeaderSize) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testBufferExactlyHeaderSize();
+}
+
+TEST(SpacePacketDeframer, testBufferSmallerThanHeaderSize) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testBufferSmallerThanHeaderSize();
+}
+
+TEST(SpacePacketDeframer, testBufferSingleByte) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testBufferSingleByte();
+}
+
+TEST(SpacePacketDeframer, testInvalidPacketIdentificationControlFields) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testInvalidPacketIdentificationControlFields();
+}
+
+TEST(SpacePacketDeframer, testCommandPacketTypeAccepted) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testCommandPacketTypeAccepted();
+}
+
+TEST(SpacePacketDeframer, testSecondaryHeaderFlagAccepted) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testSecondaryHeaderFlagAccepted();
+}
+
+TEST(SpacePacketDeframer, testSequenceFlagsAccepted) {
+    Svc::Ccsds::SpacePacketDeframerTester tester;
+    tester.testSequenceFlagsAccepted();
+}
+
+int main(int argc, char** argv) {
+    STest::Random::seed();
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}

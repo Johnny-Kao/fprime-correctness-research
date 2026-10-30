@@ -1,0 +1,202 @@
+# Installing F´
+
+## Overview
+
+This installation guide is specifically designed to enable individuals and researchers to get up and running with F´ quickly. Larger projects with specific requirements may need to extend this process.
+
+> [!NOTE]
+> See the [troubleshooting](#troubleshooting) section at the bottom for help resolving common issues found during F´ installs.
+
+**Sections:**
+
+- [System Requirements](#system-requirements)
+- [Creating a New Project](#creating-a-new-f-project)
+- [Working With An Existing Project](#working-with-an-existing-project)
+- [Troubleshooting](#troubleshooting)
+
+  
+## System Requirements
+
+F´ depends on several items before the user should attempt to install it. These requirements are listed below and the user should ensure they are installed before proceeding with this guide.
+
+Requirements (tested with):
+
+1. Linux, macOS, or WSL on Windows
+2. git
+3. CLang or GNU C and C++ compilers (e.g. gcc and g++)
+4. [Python](https://www.python.org/downloads/) 3.10 through 3.14 (the versions exercised in CI), virtual environments, and PIP
+5. *(Optional)* A [Rust toolchain](https://www.rust-lang.org/tools/install) (`cargo` and `rustc`) 1.87 or newer, required only to build components that depend on Rust. Components that require `cargo` are automatically skipped when it is not on the `PATH`, and the rest of the framework builds normally.
+
+> [!NOTE]
+> Latest versions of PIP are strongly recommended. See [Recommended PIP Versions](#recommended-pip-versions)
+>
+> A Python release newer than the tested range may not work yet: some dependencies ship prebuilt wheels for a new
+> Python version weeks or months after it is released. See [Python version too new](#python-version-too-new)
+>
+> For build host architectures other than x86_64 or aarch64, and systems with older PIP versions, Java is required
+>
+> Ubuntu and Debian users should see notes on [Python installation](#ubuntu-debian-java-and-python-pip)
+>
+> Other OS-specific notes are in the [Troubleshooting](#troubleshooting) section below.
+
+
+## Creating a new F´ Project
+
+The ecosystem of tools supporting F´ is installed as Python packages available via PIP. These packages are installed in a [virtual environment](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/) by the F´ Bootstrap tool. It is recommended to have one virtual environment per project.
+
+### 1. Install the F´ Bootstrap tool
+
+The F´ Bootstrap tool is responsible for creating a new F´ project and installing the Python dependencies within the project's virtual environment. Install the fprime-bootstrap tool with:
+```
+pip install fprime-bootstrap
+```
+
+> [!TIP]
+> Some macOS users see an SSL error. [Correct the SSL error](#ssl-error-with-python-38-on-macos) and rerun the above command.
+
+### 2. Create a new project
+
+The entrypoint to developing with F´ is creating a new project. This will clone the F´ repository and install the full tool suite of the specified version for working with the selected version of F´. To create a new project, run:
+```
+fprime-bootstrap project
+```
+
+This command will ask for some input. Sample responses are below:
+```
+  [1/2] Project repository name [my-fprime-project]: my-project
+  [2/2] Project top-level namespace [MyFprimeProject]: MyProject
+```
+
+This command performs the following actions:
+    - Create a new git repository with the standard F´ project structure
+    - Create a new virtual environment within the project and install dependencies
+
+
+### 3. Activate the virtual environment
+
+Once the project is created, activate the virtual environment to use the F´ tool suite.
+
+```
+cd my-project
+. fprime-venv/bin/activate
+```
+> [!WARNING]
+> Always remember to activate the virtual environment whenever you work with this F´  project.
+
+[Next steps: HelloWorld Tutorial](https://fprime.jpl.nasa.gov/latest/tutorials-hello-world/docs/hello-world/){ .md-button .md-button--primary }
+
+## Working With An Existing Project
+
+Sometimes users wish to work with existing F´ projects. Once the project has been acquired, users should install the tools associated with that project. This is done with:
+
+1. Ensure a virtual environment for this project has been [created and activated](https://packaging.python.org/en/latest/guides/installing-using-pip-and-virtual-environments/)
+
+2. Download the project
+
+> [!NOTE]
+> When using `git` and submodules, remember to run `git submodule update --init --recursive`
+
+3. Install the required F´ tools version
+`pip install -r <project>/fprime/requirements.txt`
+
+> [!NOTE]
+> Some projects ship their own `requirements.txt`.  Install using that file if it exists.
+
+
+## Troubleshooting
+
+This section will add some known hints to trouble-shooting with the installation of F´. This will hopefully help users install things more effectively.
+
+### General
+* [Recommended PIP Versions](#recommended-pip-versions)
+* [Python version too new](#python-version-too-new)
+* [fprime-util: command not found](#fprime-util-command-not-found)
+* [Helper script fpp-redirect-helper exited with reason: Permission denied](#helper-script-fpp-redirect-helper-exited-with-reason-permission-denied)
+### Windows
+* [Windows Subsystem for Linux (WSL) Version 1: Bad CPIU Error](#windows-subsystem-for-linux-wsl-version-1-bad-cpiu-error)
+### Linux
+* [Ubuntu, Debian, Java and Python PIP](#ubuntu-debian-java-and-python-pip)
+### macOS
+* [SSL Error with Python 3.8+](#ssl-error-with-python-38-on-macos)
+* [Apple Silicon: Bad CPIU Error](#apple-silicon-bad-cpiu-error)
+
+### Recommended PIP Versions
+Some of the F´ Python packages are built in a way that it is recommended to install them with modern versions of PIP. Systems not recommended or pip versions less than recommended will require Java and run slower versions of FPP tools. The recommended versions are described below:
+
+|System |Recommended `pip` version|
+|-------|:---------------------:|
+|macOS (10.9+)| >= 21.0.1|
+|x86_64|>= 19.3|
+|aarch64|>= 20.3|
+
+### Python version too new
+
+F´ is tested with the Python versions listed under [System Requirements](#system-requirements). A Python release
+newer than that range can fail during `pip install` while building dependencies from source, because their prebuilt
+wheels for the new version are not published yet. The failure looks like this:
+
+```
+  ERROR: Failed building wheel for fastcrc
+  ...
+  ERROR: Failed building wheel for pydantic_core
+```
+
+Create the virtual environment with a tested Python version instead, for example:
+
+```
+python3.13 -m venv fprime-venv
+. fprime-venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+```
+
+The same applies to Python versions older than the tested range.
+
+### fprime-util: command not found
+
+If the user is using a virtual environment and receives the ‘command not found’, the problem is likely caused by the environment not being sourced in a new terminal. Make sure to source the environment before running:
+```
+. <path/to/project>/fprime-venv/bin/activate
+```
+If installing without a virtual environment, PIP occasionally uses `$HOME/.local/bin` as a place to install user tools. Users running without virtual environments should add this directory to the path.
+
+### Helper script ‘fpp-redirect-helper’ exited with reason: Permission denied
+This error can occur when the helper-script, (`fprime/cmake/autocoder/fpp-wrapper/fpp-redirect-helper`) loses its execution permission.
+
+To verify that this is the case, change to the directory containing `fpp-redirect-helper` and verify that it is executable.
+
+```
+cd fprime/cmake/autocoder/fpp-wrapper/
+ls -l
+```
+If it is not executable, add the permission back.
+
+`chmod 700 fpp-redirect-helper`
+
+### Windows Subsystem for Linux (WSL) Version 1: Bad CPIU Error
+
+WSL 1 is no longer supported. Users running WSL1 will experience very slow generation and builds.  Often a `Bad CPIU Error` will occur. Users who must use WSL1 will need to [install FPP directly](https://github.com/nasa/fpp/tree/main/compiler).
+
+### Ubuntu, Debian, Java and Python PIP
+Ubuntu and possibly other Debian variants don’t include the pip packages in the default Python 3 installation. To get fully functional, use these commands on Ubuntu and Debian based systems:
+```
+sudo apt install git cmake default-jre python3 python3-pip python3-venv
+```
+Now you should be able to run the installation without trouble.
+
+### SSL Error with Python 3.8+ on macOS
+This fix will not work for Python installed via Homebrew. Try installing Python published at python.org.
+The version of openSSL bundled with Python 3.8+ requires access to macOS’s root certificates. If the following error is encountered while installing fprime:
+```
+Failed find expected download: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get  local issuer certificate
+```
+Then run the following command in a macOS terminal to install necessary certificates:
+```
+cd /Applications/Python\ 3.X/
+./Install\ Certificates.command
+```
+After running above command, re-try installing `fprime-bootstrap`.
+
+### Apple Silicon: Bad CPIU Error
+
+Macintosh users who have not installed Rosetta software will experience a "Bad CPIU Error".  Users should [install Rosetta](https://support.apple.com/en-us/102527) or [install FPP directly](https://github.com/nasa/fpp/tree/main/compiler).

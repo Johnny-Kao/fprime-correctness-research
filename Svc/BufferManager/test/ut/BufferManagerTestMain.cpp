@@ -1,0 +1,37 @@
+// ----------------------------------------------------------------------
+// TestMain.cpp
+// ----------------------------------------------------------------------
+
+#include "BufferManagerTester.hpp"
+#include "STest/Random/Random.hpp"
+
+TEST(Nominal, Setup) {
+    Svc::BufferManagerTester tester;
+    tester.testSetup();
+}
+
+TEST(Nominal, OneSize) {
+    Svc::BufferManagerTester tester;
+    tester.oneBufferSize();
+}
+
+TEST(Nominal, MultSize) {
+    Svc::BufferManagerTester tester;
+    tester.multBuffSize();
+}
+
+TEST(Nominal, BufferSizeTrimmed) {
+    Svc::BufferManagerTester tester;
+    tester.bufferSizeTrimmed();
+}
+
+TEST(OffNominal, SetupSizeOverflowAsserts) {
+    Svc::BufferManagerTester tester;
+    tester.setupSizeOverflowAsserts();
+}
+
+int main(int argc, char** argv) {
+    STest::Random::seed();
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}

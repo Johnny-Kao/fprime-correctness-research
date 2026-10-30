@@ -1,0 +1,47 @@
+// ======================================================================
+// \title  format.cpp
+// \author mstarch
+// \brief  cpp file for c-string format function as a implementation using snprintf
+// ======================================================================
+#include <Fw/Types/format.hpp>
+#include <cstdio>
+#include <limits>
+
+Fw::FormatStatus Fw::stringFormat(char* destination, const FwSizeType maximumSize, const char* formatString, ...) {
+    va_list args;
+    va_start(args, formatString);
+    FormatStatus status = Fw::stringFormat(destination, maximumSize, formatString, args);
+    va_end(args);
+    return status;
+}
+
+Fw::FormatStatus Fw::stringFormat(char* destination,
+                                  const FwSizeType maximumSize,
+                                  const char* formatString,
+                                  va_list args) {
+    Fw::FormatStatus formatStatus = Fw::FormatStatus::SUCCESS;
+    // Check destination pointer
+    if (destination == nullptr || maximumSize == 0) {
+        return Fw::FormatStatus::OTHER_ERROR;
+    }
+    // Force null termination in error cases
+    destination[0] = 0;
+    // Check format string
+    if (formatString == nullptr) {
+        formatStatus = Fw::FormatStatus::INVALID_FORMAT_STRING;
+    }
+    // Must allow the compiler to choose the correct type for comparison
+    else if (maximumSize > std::numeric_limits<size_t>::max()) {
+        formatStatus = Fw::FormatStatus::SIZE_OVERFLOW;
+    } else {
+        // Format string is intentionally a runtime parameter; suppressing static analysis warning
+        int needed_size = vsnprintf(destination, static_cast<size_t>(maximumSize), formatString, args);  // NOLINT
+        destination[maximumSize - 1] = 0;  // Force null-termination
+        if (needed_size < 0) {
+            formatStatus = Fw::FormatStatus::OTHER_ERROR;
+        } else if (static_cast<FwSizeType>(needed_size) >= maximumSize) {
+            formatStatus = Fw::FormatStatus::OVERFLOWED;
+        }
+    }
+    return formatStatus;
+}

@@ -1,0 +1,50 @@
+// ======================================================================
+// \title  Buffers.hpp
+// \author Rob Bocchino
+// \brief  Sequence file buffers
+//
+// \copyright
+// Copyright (C) 2009-2018 California Institute of Technology.
+// ALL RIGHTS RESERVED.  United States Government Sponsorship
+// acknowledged.
+// ======================================================================
+
+#ifndef Svc_SequenceFiles_Buffers_HPP
+#define Svc_SequenceFiles_Buffers_HPP
+
+#include "Svc/CmdSequencer/CmdSequencerImpl.hpp"
+
+namespace Svc {
+
+namespace SequenceFiles {
+
+namespace Buffers {
+
+//! A file buffer
+class FileBuffer : public Fw::LinearBufferBase {
+  public:
+    enum Constants { CAPACITY = 4096 };
+
+  public:
+    FileBuffer();
+    FileBuffer(const FileBuffer& other);
+
+  public:
+    DEPRECATED(FwSizeType getBuffCapacity() const, "Use getCapacity() instead");
+
+  private:
+    U8 m_buff[CAPACITY];
+};
+
+//! Write a buffer to a file
+void write(const Fw::LinearBufferBase& buffer,  //!< The buffer
+           const char* fileName                 //!< The file name
+);
+
+}  // namespace Buffers
+
+}  // namespace SequenceFiles
+
+}  // namespace Svc
+
+#endif

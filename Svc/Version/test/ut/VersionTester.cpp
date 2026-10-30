@@ -1,0 +1,595 @@
+// ======================================================================
+// \title  VersionTester.cpp
+// \author sreddy
+// \brief  cpp file for Version component test harness implementation class
+// ======================================================================
+
+#include "VersionTester.hpp"
+#include "versions/version.hpp"
+
+namespace Svc {
+
+// ----------------------------------------------------------------------
+// Construction and destruction
+// ----------------------------------------------------------------------
+
+VersionTester ::VersionTester()
+    : VersionGTestBase("VersionTester", VersionTester::MAX_HISTORY_SIZE), component("Version") {
+    this->initComponents();
+    this->connectPorts();
+}
+
+VersionTester ::~VersionTester() {}
+
+// ----------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------
+// Clear/init test
+void VersionTester ::clear_all() {
+    this->clearHistory();
+    ASSERT_EVENTS_FrameworkVersion_SIZE(0);
+    ASSERT_EVENTS_ProjectVersion_SIZE(0);
+    ASSERT_EVENTS_LibraryVersions_SIZE(0);
+    ASSERT_EVENTS_CustomVersions_SIZE(0);
+    ASSERT_TLM_FrameworkVersion_SIZE(0);
+    ASSERT_TLM_ProjectVersion_SIZE(0);
+    ASSERT_TLM_LibraryVersion01_SIZE(0);
+    ASSERT_TLM_LibraryVersion02_SIZE(0);
+    ASSERT_TLM_LibraryVersion03_SIZE(0);
+    ASSERT_TLM_LibraryVersion04_SIZE(0);
+    ASSERT_TLM_LibraryVersion05_SIZE(0);
+    ASSERT_TLM_LibraryVersion06_SIZE(0);
+    ASSERT_TLM_LibraryVersion07_SIZE(0);
+    ASSERT_TLM_LibraryVersion08_SIZE(0);
+    ASSERT_TLM_LibraryVersion09_SIZE(0);
+    ASSERT_TLM_LibraryVersion10_SIZE(0);
+    ASSERT_TLM_CustomVersion01_SIZE(0);
+    ASSERT_TLM_CustomVersion02_SIZE(0);
+    ASSERT_TLM_CustomVersion03_SIZE(0);
+    ASSERT_TLM_CustomVersion04_SIZE(0);
+    ASSERT_TLM_CustomVersion05_SIZE(0);
+    ASSERT_TLM_CustomVersion06_SIZE(0);
+    ASSERT_TLM_CustomVersion07_SIZE(0);
+    ASSERT_TLM_CustomVersion08_SIZE(0);
+    ASSERT_TLM_CustomVersion09_SIZE(0);
+    ASSERT_TLM_CustomVersion10_SIZE(0);
+}
+// ----------------------------------------------------------------------
+// Test STARTUP
+// ----------------------------------------------------------------------
+void VersionTester ::test_startup() {
+    this->component.config(true);
+    ASSERT_TLM_FrameworkVersion_SIZE(0);
+    this->component.start();
+
+    ASSERT_TLM_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+    ASSERT_TLM_ProjectVersion(0, Project::Version::PROJECT_VERSION);
+    ASSERT_EVENTS_FrameworkVersion_SIZE(1);
+    ASSERT_EVENTS_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+    ASSERT_EVENTS_ProjectVersion_SIZE(1);
+    ASSERT_EVENTS_ProjectVersion(0, Project::Version::PROJECT_VERSION);
+    // Library versions come from the test-local version.cpp table
+    ASSERT_EVENTS_LibraryVersions_SIZE(12);
+    ASSERT_EVENTS_LibraryVersions(0, "blah0 @ blah0");
+}
+
+// ----------------------------------------------------------------------
+// Test Commands
+// ----------------------------------------------------------------------
+
+void VersionTester ::test_enable() {
+    U32 cmd_seq = 9;
+    this->sendCmd_ENABLE(0, cmd_seq, VersionEnabled::DISABLED);
+    ASSERT_CMD_RESPONSE(0, 0, 9, Fw::CmdResponse::OK);
+    VersionTester::test_setVer(false);
+    // When verbosity is disabled, events are still generated but not EHAs
+    ASSERT_EVENTS_CustomVersions_SIZE(10);
+    ASSERT_TLM_CustomVersion01_SIZE(0);
+    ASSERT_TLM_CustomVersion02_SIZE(0);
+    ASSERT_TLM_CustomVersion03_SIZE(0);
+    ASSERT_TLM_CustomVersion04_SIZE(0);
+    ASSERT_TLM_CustomVersion05_SIZE(0);
+    ASSERT_TLM_CustomVersion06_SIZE(0);
+    ASSERT_TLM_CustomVersion07_SIZE(0);
+    ASSERT_TLM_CustomVersion08_SIZE(0);
+    ASSERT_TLM_CustomVersion09_SIZE(0);
+    ASSERT_TLM_CustomVersion10_SIZE(0);
+
+    cmd_seq = 9;
+    this->sendCmd_ENABLE(0, cmd_seq, VersionEnabled::ENABLED);
+    ASSERT_CMD_RESPONSE(0, 0, 9, Fw::CmdResponse::OK);
+    VersionTester::test_setVer(true);
+    // When verbosity is enabled, events and EHAs are generated
+    ASSERT_EVENTS_CustomVersions_SIZE(10);
+    ASSERT_TLM_CustomVersion01_SIZE(1);
+    ASSERT_TLM_CustomVersion02_SIZE(1);
+    ASSERT_TLM_CustomVersion03_SIZE(1);
+    ASSERT_TLM_CustomVersion04_SIZE(1);
+    ASSERT_TLM_CustomVersion05_SIZE(1);
+    ASSERT_TLM_CustomVersion06_SIZE(1);
+    ASSERT_TLM_CustomVersion07_SIZE(1);
+    ASSERT_TLM_CustomVersion08_SIZE(1);
+    ASSERT_TLM_CustomVersion09_SIZE(1);
+    ASSERT_TLM_CustomVersion10_SIZE(1);
+}
+
+void VersionTester ::test_versions() {
+    U32 cmd_seq = 9;
+    this->clear_all();
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::FRAMEWORK);
+    ASSERT_CMD_RESPONSE(0, 1, 9, Fw::CmdResponse::OK);
+    ASSERT_TLM_FrameworkVersion_SIZE(1);
+    ASSERT_TLM_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+    ASSERT_EVENTS_FrameworkVersion_SIZE(1);
+    ASSERT_EVENTS_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+
+    this->clear_all();
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::PROJECT);
+    ASSERT_CMD_RESPONSE(0, 1, 9, Fw::CmdResponse::OK);
+    ASSERT_TLM_ProjectVersion_SIZE(1);
+    ASSERT_TLM_ProjectVersion(0, Project::Version::PROJECT_VERSION);
+    ASSERT_EVENTS_ProjectVersion_SIZE(1);
+    ASSERT_EVENTS_ProjectVersion(0, Project::Version::PROJECT_VERSION);
+
+    this->clear_all();
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::LIBRARY);
+    ASSERT_CMD_RESPONSE(0, 1, 9, Fw::CmdResponse::OK);
+    ASSERT_EVENTS_LibraryVersions_SIZE(12);
+
+    ASSERT_TLM_LibraryVersion01_SIZE(1);
+    ASSERT_TLM_LibraryVersion01(0, "blah0 @ blah0");
+    ASSERT_EVENTS_LibraryVersions(0, "blah0 @ blah0");
+
+    ASSERT_TLM_LibraryVersion02_SIZE(1);
+    ASSERT_TLM_LibraryVersion02(0, "blah1 @ blah1");
+    ASSERT_EVENTS_LibraryVersions(1, "blah1 @ blah1");
+
+    ASSERT_TLM_LibraryVersion03_SIZE(1);
+    ASSERT_TLM_LibraryVersion03(0, "blah2 @ blah2");
+    ASSERT_EVENTS_LibraryVersions(2, "blah2 @ blah2");
+
+    ASSERT_TLM_LibraryVersion04_SIZE(1);
+    ASSERT_TLM_LibraryVersion04(0, "blah3 @ blah3");
+    ASSERT_EVENTS_LibraryVersions(3, "blah3 @ blah3");
+
+    ASSERT_TLM_LibraryVersion05_SIZE(1);
+    ASSERT_TLM_LibraryVersion05(0, "blah4 @ blah4");
+    ASSERT_EVENTS_LibraryVersions(4, "blah4 @ blah4");
+
+    ASSERT_TLM_LibraryVersion06_SIZE(1);
+    ASSERT_TLM_LibraryVersion06(0, "blah5 @ blah5");
+    ASSERT_EVENTS_LibraryVersions(5, "blah5 @ blah5");
+
+    ASSERT_TLM_LibraryVersion07_SIZE(1);
+    ASSERT_TLM_LibraryVersion07(0, "blah6 @ blah6");
+    ASSERT_EVENTS_LibraryVersions(6, "blah6 @ blah6");
+
+    ASSERT_TLM_LibraryVersion08_SIZE(1);
+    ASSERT_TLM_LibraryVersion08(0, "blah7 @ blah7");
+    ASSERT_EVENTS_LibraryVersions(7, "blah7 @ blah7");
+
+    ASSERT_TLM_LibraryVersion09_SIZE(1);
+    ASSERT_TLM_LibraryVersion09(0, "blah8 @ blah8");
+    ASSERT_EVENTS_LibraryVersions(8, "blah8 @ blah8");
+
+    ASSERT_TLM_LibraryVersion10_SIZE(1);
+    ASSERT_TLM_LibraryVersion10(0, "blah9 @ blah9");
+    ASSERT_EVENTS_LibraryVersions(9, "blah9 @ blah9");
+
+    ASSERT_EVENTS_LibraryVersions(10, "blah10 @ blah10");
+
+    ASSERT_EVENTS_LibraryVersions(11, "blah11 @ blah11");
+
+    this->clear_all();
+    Svc::CustomVersionDb custom_data_struct;
+    this->test_setVer(false);
+    this->clear_all();
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::CUSTOM);
+    ASSERT_CMD_RESPONSE(0, 1, 9, Fw::CmdResponse::OK);
+
+    ASSERT_EVENTS_CustomVersions_SIZE(10);
+
+    ASSERT_EVENTS_CustomVersions(2, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_02, "ver_2");
+    custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_02, Fw::String("ver_2"),
+                           Svc::VersionStatus::OK);
+    ASSERT_TLM_CustomVersion03(0, custom_data_struct);
+    ASSERT_TLM_CustomVersion03_SIZE(1);
+
+    ASSERT_EVENTS_CustomVersions(3, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, "ver_3");
+    custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, Fw::String("ver_3"),
+                           Svc::VersionStatus::FAILURE);
+    ASSERT_TLM_CustomVersion04(0, custom_data_struct);
+    ASSERT_TLM_CustomVersion04_SIZE(1);
+
+    ASSERT_EVENTS_CustomVersions(6, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_06, "ver_6");
+    custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_06, Fw::String("ver_6"),
+                           Svc::VersionStatus::FAILURE);
+    ASSERT_TLM_CustomVersion07(0, custom_data_struct);
+    ASSERT_TLM_CustomVersion07_SIZE(1);
+
+    ASSERT_EVENTS_CustomVersions(9, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_09, "ver_9");
+    custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_09, Fw::String("ver_9"),
+                           Svc::VersionStatus::OK);
+    ASSERT_TLM_CustomVersion10(0, custom_data_struct);
+    ASSERT_TLM_CustomVersion10_SIZE(1);
+
+    this->clear_all();
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::ALL);
+    ASSERT_CMD_RESPONSE(0, 1, 9, Fw::CmdResponse::OK);
+    ASSERT_TLM_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+    ASSERT_TLM_ProjectVersion(0, Project::Version::PROJECT_VERSION);
+    ASSERT_EVENTS_FrameworkVersion_SIZE(1);
+    ASSERT_EVENTS_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+    ASSERT_EVENTS_ProjectVersion_SIZE(1);
+    ASSERT_EVENTS_ProjectVersion(0, Project::Version::PROJECT_VERSION);
+    ASSERT_EVENTS_CustomVersions_SIZE(10);
+    ASSERT_EVENTS_LibraryVersions_SIZE(12);
+}
+
+void VersionTester ::test_commands() {
+    this->test_enable();
+    this->test_versions();
+}
+
+void VersionTester ::test_customEventsDisabled() {
+    U32 cmd_seq = 9;
+    this->clear_all();
+    this->sendCmd_ENABLE(0, cmd_seq, VersionEnabled::DISABLED);
+    ASSERT_CMD_RESPONSE(0, 0, cmd_seq, Fw::CmdResponse::OK);
+
+    Svc::VersionStatus status = Svc::VersionStatus::OK;
+    Fw::String set_ver = "ver_a";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, set_ver, status);
+    set_ver = "ver_b";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, set_ver, status);
+    this->clear_all();
+
+    // VERSION CUSTOM: events for every populated slot, no custom telemetry
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::CUSTOM);
+    ASSERT_CMD_RESPONSE(0, 1, cmd_seq, Fw::CmdResponse::OK);
+    ASSERT_EVENTS_CustomVersions_SIZE(2);
+    ASSERT_EVENTS_CustomVersions(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, "ver_a");
+    ASSERT_EVENTS_CustomVersions(1, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, "ver_b");
+    ASSERT_TLM_CustomVersion01_SIZE(0);
+    ASSERT_TLM_CustomVersion06_SIZE(0);
+    this->clear_all();
+
+    // VERSION ALL: same custom behavior
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::ALL);
+    ASSERT_CMD_RESPONSE(0, 1, cmd_seq, Fw::CmdResponse::OK);
+    ASSERT_EVENTS_CustomVersions_SIZE(2);
+    ASSERT_EVENTS_CustomVersions(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, "ver_a");
+    ASSERT_EVENTS_CustomVersions(1, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, "ver_b");
+    ASSERT_TLM_CustomVersion01_SIZE(0);
+    ASSERT_TLM_CustomVersion06_SIZE(0);
+
+    // Re-enabling restores telemetry
+    this->clear_all();
+    this->sendCmd_ENABLE(0, cmd_seq, VersionEnabled::ENABLED);
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::CUSTOM);
+    ASSERT_EVENTS_CustomVersions_SIZE(2);
+    ASSERT_TLM_CustomVersion01_SIZE(1);
+    ASSERT_TLM_CustomVersion06_SIZE(1);
+}
+
+void VersionTester ::test_setVerRewrite() {
+    U32 cmd_seq = 9;
+    this->clear_all();
+    this->sendCmd_ENABLE(0, cmd_seq, VersionEnabled::ENABLED);
+    ASSERT_CMD_RESPONSE(0, 0, cmd_seq, Fw::CmdResponse::OK);
+
+    // Rewrite a single slot more times than a U8 counter can hold
+    Svc::VersionStatus status = Svc::VersionStatus::OK;
+    Fw::String set_ver;
+    for (U32 i = 0; i < 300; i++) {
+        set_ver.format("rw_%" PRIu32, i);
+        this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, set_ver, status);
+        // Each write is reported on its own, so the table is still recognized as populated
+        ASSERT_EVENTS_CustomVersions_SIZE(1);
+        ASSERT_EVENTS_CustomVersions(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, set_ver.toChar());
+        ASSERT_TLM_CustomVersion04_SIZE(1);
+        this->clear_all();
+    }
+
+    // The table must still report the (single) populated slot
+    this->sendCmd_VERSION(0, cmd_seq, Svc::VersionType::CUSTOM);
+    ASSERT_CMD_RESPONSE(0, 1, cmd_seq, Fw::CmdResponse::OK);
+    ASSERT_EVENTS_CustomVersions_SIZE(1);
+    ASSERT_EVENTS_CustomVersions(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, "rw_299");
+    ASSERT_TLM_CustomVersion04_SIZE(1);
+
+    Fw::String get_ver;
+    this->invoke_to_getVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, get_ver, status);
+    ASSERT_EQ(get_ver, Fw::String("rw_299"));
+    ASSERT_EQ(status, Svc::VersionStatus::OK);
+}
+
+// ----------------------------------------------------------------------
+// Test User Ports
+// ----------------------------------------------------------------------
+
+void VersionTester ::test_setVer(bool is_enabled) {
+    Svc::VersionStatus status = Svc::VersionStatus::OK;
+    Fw::String set_ver = "ver_2";
+
+    // Create a db to compare against set values
+    Svc::CustomVersionDb custom_data_struct;
+
+    // Start Clean
+    this->clear_all();
+
+    set_ver = "ver_0";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(1);
+        ASSERT_EVENTS_CustomVersions(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, "ver_0");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, set_ver, Svc::VersionStatus::OK);
+        ASSERT_TLM_CustomVersion01(0, custom_data_struct);
+    }
+
+    set_ver = "ver_1";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_01, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(2);
+        ASSERT_EVENTS_CustomVersions(1, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_01, "ver_1");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_01, set_ver, Svc::VersionStatus::OK);
+        ASSERT_TLM_CustomVersion02(0, custom_data_struct);
+    }
+
+    set_ver = "ver_2";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_02, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(3);
+        ASSERT_EVENTS_CustomVersions(2, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_02, "ver_2");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_02, set_ver, Svc::VersionStatus::OK);
+        ASSERT_TLM_CustomVersion03(0, custom_data_struct);
+    }
+
+    status = Svc::VersionStatus::FAILURE;
+
+    set_ver = "ver_3";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(4);
+        ASSERT_EVENTS_CustomVersions(3, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, "ver_3");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, set_ver, Svc::VersionStatus::FAILURE);
+        ASSERT_TLM_CustomVersion04(0, custom_data_struct);
+    }
+
+    set_ver = "ver_4";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_04, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(5);
+        ASSERT_EVENTS_CustomVersions(4, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_04, "ver_4");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_04, set_ver, Svc::VersionStatus::FAILURE);
+        ASSERT_TLM_CustomVersion05(0, custom_data_struct);
+    }
+
+    set_ver = "ver_5";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(6);
+        ASSERT_EVENTS_CustomVersions(5, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, "ver_5");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, set_ver, Svc::VersionStatus::FAILURE);
+        ASSERT_TLM_CustomVersion06(0, custom_data_struct);
+    }
+
+    set_ver = "ver_6";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_06, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(7);
+        ASSERT_EVENTS_CustomVersions(6, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_06, "ver_6");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_06, set_ver, Svc::VersionStatus::FAILURE);
+        ASSERT_TLM_CustomVersion07(0, custom_data_struct);
+    }
+
+    status = Svc::VersionStatus::OK;
+
+    set_ver = "ver_7";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_07, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(8);
+        ASSERT_EVENTS_CustomVersions(7, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_07, "ver_7");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_07, set_ver, Svc::VersionStatus::OK);
+        ASSERT_TLM_CustomVersion08(0, custom_data_struct);
+    }
+
+    set_ver = "ver_8";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_08, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(9);
+        ASSERT_EVENTS_CustomVersions(8, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_08, "ver_8");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_08, set_ver, Svc::VersionStatus::OK);
+        ASSERT_TLM_CustomVersion09(0, custom_data_struct);
+    }
+
+    set_ver = "ver_9";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_09, set_ver, status);
+    if (is_enabled == true) {
+        ASSERT_EVENTS_CustomVersions_SIZE(10);
+        ASSERT_EVENTS_CustomVersions(9, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_09, "ver_9");
+        custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_09, set_ver, Svc::VersionStatus::OK);
+        ASSERT_TLM_CustomVersion10(0, custom_data_struct);
+    }
+}
+
+void VersionTester ::test_getVer() {
+    Svc::VersionStatus status;
+    Fw::String get_ver;
+
+    this->invoke_to_getVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_02, get_ver, status);
+    ASSERT_EQ(get_ver, "ver_2");
+    ASSERT_EQ(status, Svc::VersionStatus::OK);
+
+    this->invoke_to_getVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, get_ver, status);
+    ASSERT_EQ(get_ver, "ver_3");
+    ASSERT_EQ(status, Svc::VersionStatus::FAILURE);
+
+    this->invoke_to_getVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_06, get_ver, status);
+    ASSERT_EQ(get_ver, "ver_6");
+    ASSERT_EQ(status, Svc::VersionStatus::FAILURE);
+
+    this->invoke_to_getVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_09, get_ver, status);
+    ASSERT_EQ(get_ver, "ver_9");
+    ASSERT_EQ(status, Svc::VersionStatus::OK);
+
+    this->invoke_to_getVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, get_ver, status);
+    ASSERT_EQ(get_ver, "ver_5");
+    ASSERT_EQ(status, Svc::VersionStatus::FAILURE);
+}
+
+void VersionTester ::test_schedIn() {
+    Svc::CustomVersionDb custom_data_struct;
+
+    // Empty state: a tick with no slots set emits nothing
+    this->sendCmd_ENABLE(0, 9, VersionEnabled::ENABLED);
+    this->clear_all();
+    this->invoke_to_schedIn(0, 0);
+    ASSERT_EVENTS_CustomVersions_SIZE(0);
+    ASSERT_TLM_CustomVersion01_SIZE(0);
+    ASSERT_TLM_CustomVersion10_SIZE(0);
+
+    // Populate all 10 slots (mixed OK/FAILURE) via setVersion
+    this->test_setVer(true);
+
+    // Enabled: a tick re-emits all 10 populated slots as TELEMETRY ONLY (no events),
+    // because the periodic path is channel-only to avoid event-log spam.
+    this->clear_all();
+    this->invoke_to_schedIn(0, 0);
+    ASSERT_EVENTS_CustomVersions_SIZE(0);
+
+    // sendEvent=false also suppresses framework/project/library events on a tick, while their
+    // telemetry channels are still written (their telemetry is ungated by the verbosity flag).
+    ASSERT_EVENTS_FrameworkVersion_SIZE(0);
+    ASSERT_TLM_FrameworkVersion_SIZE(1);
+    ASSERT_TLM_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+    ASSERT_EVENTS_ProjectVersion_SIZE(0);
+    ASSERT_TLM_ProjectVersion_SIZE(1);
+    ASSERT_TLM_ProjectVersion(0, Project::Version::PROJECT_VERSION);
+    ASSERT_EVENTS_LibraryVersions_SIZE(0);
+    ASSERT_TLM_LibraryVersion01_SIZE(1);
+    ASSERT_TLM_LibraryVersion10_SIZE(1);
+
+    // Spot-check channel value and status propagation across the range (no event asserts: tick is silent)
+    custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, Fw::String("ver_0"),
+                           Svc::VersionStatus::OK);
+    ASSERT_TLM_CustomVersion01_SIZE(1);
+    ASSERT_TLM_CustomVersion01(0, custom_data_struct);
+
+    custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_03, Fw::String("ver_3"),
+                           Svc::VersionStatus::FAILURE);
+    ASSERT_TLM_CustomVersion04_SIZE(1);
+    ASSERT_TLM_CustomVersion04(0, custom_data_struct);
+
+    custom_data_struct.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_09, Fw::String("ver_9"),
+                           Svc::VersionStatus::OK);
+    ASSERT_TLM_CustomVersion10_SIZE(1);
+    ASSERT_TLM_CustomVersion10(0, custom_data_struct);
+
+    // Periodic: a second tick re-emits channels again (not one-shot), still silent on events
+    this->clear_all();
+    this->invoke_to_schedIn(0, 0);
+    ASSERT_EVENTS_CustomVersions_SIZE(0);
+    ASSERT_TLM_CustomVersion01_SIZE(1);
+    ASSERT_TLM_CustomVersion10_SIZE(1);
+
+    // Contrast: the on-demand VERSION command STILL produces events (events are reserved for explicit requests)
+    this->clear_all();
+    this->sendCmd_VERSION(0, 9, Svc::VersionType::CUSTOM);
+    ASSERT_CMD_RESPONSE(0, 1, 9, Fw::CmdResponse::OK);
+    ASSERT_EVENTS_CustomVersions_SIZE(10);
+
+    // Disabled: a tick suppresses CUSTOM channels (gated on verbosity) and remains silent on events
+    this->sendCmd_ENABLE(0, 9, VersionEnabled::DISABLED);
+    this->clear_all();
+    this->invoke_to_schedIn(0, 0);
+    ASSERT_EVENTS_CustomVersions_SIZE(0);
+    ASSERT_TLM_CustomVersion01_SIZE(0);
+    ASSERT_TLM_CustomVersion10_SIZE(0);
+
+    // Framework/project/library telemetry is NOT gated on verbosity: a disabled tick still writes
+    // their channels (sendEvent=false) and still emits no events. This isolates the event function argument
+    // from the verbosity flag.
+    ASSERT_EVENTS_FrameworkVersion_SIZE(0);
+    ASSERT_TLM_FrameworkVersion_SIZE(1);
+    ASSERT_EVENTS_ProjectVersion_SIZE(0);
+    ASSERT_TLM_ProjectVersion_SIZE(1);
+    ASSERT_EVENTS_LibraryVersions_SIZE(0);
+    ASSERT_TLM_LibraryVersion01_SIZE(1);
+}
+
+void VersionTester ::test_sendEventParam() {
+    Svc::VersionStatus status = Svc::VersionStatus::OK;
+    Svc::CustomVersionDb expect;
+
+    // Populate only two custom slots (00 -> CustomVersion01, 05 -> CustomVersion06); leave the rest empty
+    this->sendCmd_ENABLE(0, 9, VersionEnabled::ENABLED);
+    this->clear_all();
+    Fw::String v0 = "ver_x";
+    Fw::String v5 = "ver_y";
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, v0, status);
+    this->invoke_to_setVersion(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, v5, status);
+    this->clear_all();
+
+    // One scheduled tick: every tlm method that takes the sendEvent function argument runs with sendEvent=false
+    this->invoke_to_schedIn(0, 0);
+
+    // customVersion_tlm (sendEvent=false): only POPULATED slots re-emit as telemetry; empty slots stay
+    // silent (the no_ver skip); no custom events at all.
+    ASSERT_EVENTS_CustomVersions_SIZE(0);
+    expect.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, v0, Svc::VersionStatus::OK);
+    ASSERT_TLM_CustomVersion01_SIZE(1);
+    ASSERT_TLM_CustomVersion01(0, expect);
+    expect.set(Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, v5, Svc::VersionStatus::OK);
+    ASSERT_TLM_CustomVersion06_SIZE(1);
+    ASSERT_TLM_CustomVersion06(0, expect);
+    // Unpopulated slots emit nothing
+    ASSERT_TLM_CustomVersion02_SIZE(0);
+    ASSERT_TLM_CustomVersion05_SIZE(0);
+    ASSERT_TLM_CustomVersion10_SIZE(0);
+
+    // fwVersion_tlm / projectVersion_tlm (sendEvent=false): correct channel VALUE, no event
+    ASSERT_EVENTS_FrameworkVersion_SIZE(0);
+    ASSERT_TLM_FrameworkVersion_SIZE(1);
+    ASSERT_TLM_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+    ASSERT_EVENTS_ProjectVersion_SIZE(0);
+    ASSERT_TLM_ProjectVersion_SIZE(1);
+    ASSERT_TLM_ProjectVersion(0, Project::Version::PROJECT_VERSION);
+
+    // libraryVersion_tlm (sendEvent=false): every channel carries its correct VALUE, no events
+    ASSERT_EVENTS_LibraryVersions_SIZE(0);
+    ASSERT_TLM_LibraryVersion01(0, "blah0 @ blah0");
+    ASSERT_TLM_LibraryVersion02(0, "blah1 @ blah1");
+    ASSERT_TLM_LibraryVersion03(0, "blah2 @ blah2");
+    ASSERT_TLM_LibraryVersion04(0, "blah3 @ blah3");
+    ASSERT_TLM_LibraryVersion05(0, "blah4 @ blah4");
+    ASSERT_TLM_LibraryVersion06(0, "blah5 @ blah5");
+    ASSERT_TLM_LibraryVersion07(0, "blah6 @ blah6");
+    ASSERT_TLM_LibraryVersion08(0, "blah7 @ blah7");
+    ASSERT_TLM_LibraryVersion09(0, "blah8 @ blah8");
+    ASSERT_TLM_LibraryVersion10(0, "blah9 @ blah9");
+
+    // Contrast the SAME methods on a sendEvent=true entry point: VERSION ALL re-emits WITH events,
+    // confirming the function argument is what gates events (channels identical to the silent tick above).
+    this->clear_all();
+    this->sendCmd_VERSION(0, 9, Svc::VersionType::ALL);
+    ASSERT_CMD_RESPONSE(0, 1, 9, Fw::CmdResponse::OK);
+    ASSERT_EVENTS_FrameworkVersion_SIZE(1);
+    ASSERT_EVENTS_ProjectVersion_SIZE(1);
+    ASSERT_EVENTS_LibraryVersions_SIZE(12);
+    ASSERT_EVENTS_CustomVersions_SIZE(2);  // one event per populated slot
+    ASSERT_EVENTS_CustomVersions(0, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_00, "ver_x");
+    ASSERT_EVENTS_CustomVersions(1, Svc::VersionCfg::VersionEnum::PROJECT_VERSION_05, "ver_y");
+    ASSERT_TLM_FrameworkVersion(0, Project::Version::FRAMEWORK_VERSION);
+    ASSERT_TLM_CustomVersion01_SIZE(1);
+    ASSERT_TLM_CustomVersion06_SIZE(1);
+}
+
+void VersionTester::test_ports() {
+    this->sendCmd_ENABLE(0, 9, VersionEnabled::ENABLED);
+    this->test_setVer(true);
+    this->test_getVer();
+    // schedIn is covered by the standalone test_schedIn case, whose empty-state check requires a
+    // fresh (unpopulated) component; do not re-run it here after test_setVer has populated slots.
+}
+}  // namespace Svc

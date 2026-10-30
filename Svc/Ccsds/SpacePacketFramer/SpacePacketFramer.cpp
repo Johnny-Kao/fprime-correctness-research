@@ -1,0 +1,114 @@
+// ======================================================================
+// \title  SpacePacketFramer.cpp
+// \author thomas-bc
+// \brief  cpp file for SpacePacketFramer component implementation class
+// ======================================================================
+
+#include "Svc/Ccsds/SpacePacketFramer/SpacePacketFramer.hpp"
+#include "Svc/Ccsds/Types/FppConstantsAc.hpp"
+#include "Svc/Ccsds/Types/SpacePacketHeaderSerializableAc.hpp"
+
+namespace Svc {
+
+namespace Ccsds {
+
+// ----------------------------------------------------------------------
+// Component construction and destruction
+// ----------------------------------------------------------------------
+
+SpacePacketFramer ::SpacePacketFramer(const char* const compName) : SpacePacketFramerComponentBase(compName) {}
+
+SpacePacketFramer ::~SpacePacketFramer() {}
+
+// ----------------------------------------------------------------------
+// Handler implementations for typed input ports
+// ----------------------------------------------------------------------
+
+void SpacePacketFramer ::dataIn_handler(FwIndexType portNum, Fw::Buffer& data, const ComCfg::FrameContext& context) {
+    SpacePacketHeader header;
+    Fw::SerializeStatus status;
+    FwSizeType frameSize = SpacePacketHeader::SERIALIZED_SIZE + data.getSize();
+    FW_ASSERT(data.getSize() <= std::numeric_limits<Fw::Buffer::SizeType>::max() - SpacePacketHeader::SERIALIZED_SIZE,
+              static_cast<FwAssertArgType>(data.getSize()));
+    FW_ASSERT(
+        data.getSize() > 0,
+        static_cast<FwAssertArgType>(data.getSize()));  // Protocol specifies at least 1 byte of data for a valid packet
+
+    // Allocate frame buffer
+    Fw::Buffer frameBuffer = this->bufferAllocate_out(0, static_cast<Fw::Buffer::SizeType>(frameSize));
+    // The allocator may return an invalid or smaller-than-requested buffer
+    if ((not frameBuffer.isValid()) || (frameBuffer.getSize() < frameSize)) {
+        this->log_WARNING_HI_NoBufferAvailable();
+        if (frameBuffer.isValid()) {
+            this->bufferDeallocate_out(0, frameBuffer);
+        }
+        this->dataReturnOut_out(0, data, context);
+        // No frame produced: report SUCCESS so the upstream ComQueue keeps sending (Framer Status Protocol)
+        if (this->isConnected_comStatusOut_OutputPort(0)) {
+            Fw::Success comStatus = Fw::Success::SUCCESS;
+            this->comStatusOut_out(0, comStatus);
+        }
+        return;
+    }
+    auto frameSerializer = frameBuffer.getSerializer();
+
+    // -----------------------------------------------
+    // Header
+    // -----------------------------------------------
+    ComCfg::Apid::T apid = context.get_apid();
+    FW_ASSERT((apid >> SpacePacketSubfields::ApidWidth) == 0,
+              static_cast<FwAssertArgType>(apid));  // apid must fit in 11 bits
+    // Packet Type is 0 for Telemetry (downlink) 1 for Control command
+    const U16 pktType = static_cast<U16>(context.get_pktType());
+    const U16 secHdrFlag = context.get_hasSecHdr() ? 1 : 0;
+    // PVN is always 0 per Standard
+    // 11 bit APID, 1 bit SecHdr flag, 1 bit packet type
+    const U16 packetIdentification = static_cast<U16>(
+        (static_cast<U16>(apid) & SpacePacketSubfields::ApidMask) | (secHdrFlag << SpacePacketSubfields::SecHdrOffset) |
+        ((pktType << SpacePacketSubfields::PktTypeOffset) & SpacePacketSubfields::PktTypeMask));
+
+    U16 sequenceCount = this->getApidSeqCount_out(0, apid, 0);  // retrieve the sequence count for this APID
+    const U8 seqFlags = context.get_sequenceFlags();
+    // 2 bit sequence flags | 14 bit sequence count
+    U16 packetSequenceControl = static_cast<U16>(
+        ((static_cast<U16>(seqFlags) << SpacePacketSubfields::SeqFlagsOffset) & SpacePacketSubfields::SeqFlagsMask) |
+        (sequenceCount & SpacePacketSubfields::SeqCountMask));
+
+    FW_ASSERT(data.getSize() <= std::numeric_limits<U16>::max(), static_cast<FwAssertArgType>(data.getSize()));
+    U16 packetDataLength =
+        static_cast<U16>(data.getSize() - 1);  // Standard specifies length is number of bytes minus 1
+
+    header.set_packetIdentification(packetIdentification);
+    header.set_packetSequenceControl(packetSequenceControl);
+    header.set_packetDataLength(packetDataLength);
+
+    // -----------------------------------------------
+    // Serialize the packet
+    // -----------------------------------------------
+    status = frameSerializer.serializeFrom(header);
+    FW_ASSERT(status == Fw::FW_SERIALIZE_OK, status);
+    status = frameSerializer.serializeFrom(data.getData(), data.getSize(), Fw::Serialization::OMIT_LENGTH);
+    FW_ASSERT(status == Fw::FW_SERIALIZE_OK, status);
+
+    // Trim to actual frame size in case allocator returned a larger buffer
+    frameBuffer.setSize(static_cast<Fw::Buffer::SizeType>(frameSize));
+
+    this->dataOut_out(0, frameBuffer, context);
+    this->dataReturnOut_out(0, data, context);  // return ownership of the original data buffer
+}
+
+void SpacePacketFramer ::comStatusIn_handler(FwIndexType portNum, Fw::Success& condition) {
+    if (this->isConnected_comStatusOut_OutputPort(portNum)) {
+        this->comStatusOut_out(portNum, condition);
+    }
+}
+
+void SpacePacketFramer ::dataReturnIn_handler(FwIndexType portNum,
+                                              Fw::Buffer& frameBuffer,
+                                              const ComCfg::FrameContext& context) {
+    // dataReturnIn is the allocated buffer coming back from the dataOut port
+    this->bufferDeallocate_out(0, frameBuffer);
+}
+
+}  // namespace Ccsds
+}  // namespace Svc

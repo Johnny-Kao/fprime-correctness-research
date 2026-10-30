@@ -1,0 +1,157 @@
+// ======================================================================
+// \title  JoinWait.hpp
+// \author janamian
+// \brief  cpp file for CmdSequencer test harness implementation class
+//
+// \copyright
+// Copyright 2009-2021, by the California Institute of Technology.
+// ALL RIGHTS RESERVED.  United States Government Sponsorship
+// acknowledged.
+//
+// ======================================================================
+
+#include "Svc/CmdSequencer/test/ut/JoinWait.hpp"
+#include "Svc/CmdSequencer/test/ut/Relative.hpp"
+
+namespace Svc {
+
+namespace JoinWait {
+
+// ----------------------------------------------------------------------
+// Constructors
+// ----------------------------------------------------------------------
+
+CmdSequencerTester ::CmdSequencerTester(const SequenceFiles::File::Format::t a_format)
+    : Svc::CmdSequencerTester(a_format) {}
+// ----------------------------------------------------------------------
+// Tests
+// ----------------------------------------------------------------------
+
+void CmdSequencerTester ::test_join_wait_without_active_seq() {
+    // Send join wait command when there is no active seq
+    this->sendCmd_CS_JOIN_WAIT(0, 0);
+    this->clearAndDispatch();
+    // Assert events
+    ASSERT_EVENTS_SIZE(1);
+    ASSERT_EVENTS_CS_NoSequenceActive_SIZE(1);
+}
+
+void CmdSequencerTester ::test_join_wait_with_active_seq() {
+    const U32 numRecords = 1;
+    SequenceFiles::RelativeFile file(numRecords, this->format);
+    // Set the time
+    Fw::Time testTime(TimeBase::TB_WORKSTATION_TIME, 0, 0);
+    this->setTestTime(testTime);
+    // Write the file
+    const char* const fileName = file.getName().toChar();
+    file.write();
+    // Validate the file
+    this->validateFile(0, fileName);
+    // Run the sequence
+    this->runSequence(0, fileName);
+
+    // Assert that timer is set
+    ASSERT_EQ(CmdSequencerComponentImpl::Timer::SET, this->component.m_cmdTimer.m_state);
+
+    // Run one cycle to make sure nothing is dispatched yet
+    this->invoke_to_schedIn(0, 0);
+    this->clearAndDispatch();
+    ASSERT_from_comCmdOut_SIZE(0);
+    ASSERT_EVENTS_SIZE(0);
+
+    // Assert that timer hasn't expired
+    ASSERT_EQ(CmdSequencerComponentImpl::Timer::SET, this->component.m_cmdTimer.m_state);
+
+    // Request join wait
+    this->sendCmd_CS_JOIN_WAIT(0, 0);
+    this->clearAndDispatch();
+    // Make sure JOIN_WAIT is active
+    ASSERT_EVENTS_CS_NoSequenceActive_SIZE(0);
+    ASSERT_TRUE(this->component.m_join_waiting);
+
+    // Send status back
+    this->invoke_to_cmdResponseIn(0, 0, 0, Fw::CmdResponse::OK);
+    this->clearAndDispatch();
+
+    // Make sure we received completion for both command and join_wait
+    ASSERT_EVENTS_SIZE(2);
+    // Make sure join wait has been cleared
+    ASSERT_FALSE(this->component.m_join_waiting);
+}
+
+void CmdSequencerTester ::test_join_wait_with_blocking_seq() {
+    const U32 numRecords = 1;
+    SequenceFiles::RelativeFile file(numRecords, this->format);
+    // Set the time
+    Fw::Time testTime(TimeBase::TB_WORKSTATION_TIME, 0, 0);
+    this->setTestTime(testTime);
+    // Write the file
+    const char* const fileName = file.getName().toChar();
+    file.write();
+    // Validate the file
+    this->validateFile(0, fileName);
+
+    // Run the sequence in BLOCK mode; no response until completion
+    const U32 runCmdSeq = 12;
+    this->sendCmd_CS_RUN(0, runCmdSeq, Fw::CmdStringArg(fileName), Svc::BlockState::BLOCK);
+    this->clearAndDispatch();
+    ASSERT_CMD_RESPONSE_SIZE(0);
+
+    // JOIN_WAIT must be rejected while a BLOCK-mode response is pending
+    this->sendCmd_CS_JOIN_WAIT(0, 34);
+    this->clearAndDispatch();
+    ASSERT_CMD_RESPONSE_SIZE(1);
+    ASSERT_CMD_RESPONSE(0, CmdSequencerComponentImpl::OPCODE_CS_JOIN_WAIT, 34, Fw::CmdResponse::EXECUTION_ERROR);
+    ASSERT_EVENTS_CS_JoinWaitingNotComplete_SIZE(1);
+    ASSERT_FALSE(this->component.m_join_waiting);
+
+    // Complete the sequence; BLOCK-mode caller receives its completion response
+    this->invoke_to_cmdResponseIn(0, 0, 0, Fw::CmdResponse::OK);
+    this->clearAndDispatch();
+    ASSERT_CMD_RESPONSE_SIZE(1);
+    ASSERT_CMD_RESPONSE(0, CmdSequencerComponentImpl::OPCODE_CS_RUN, runCmdSeq, Fw::CmdResponse::OK);
+}
+
+void CmdSequencerTester ::test_join_wait_with_second_join_wait() {
+    const U32 numRecords = 1;
+    SequenceFiles::RelativeFile file(numRecords, this->format);
+    // Set the time
+    Fw::Time testTime(TimeBase::TB_WORKSTATION_TIME, 0, 0);
+    this->setTestTime(testTime);
+    // Write the file
+    const char* const fileName = file.getName().toChar();
+    file.write();
+    // Validate the file
+    this->validateFile(0, fileName);
+    // Run the sequence
+    this->runSequence(0, fileName);
+
+    // First JOIN_WAIT succeeds and starts waiting
+    const U32 firstCmdSeq = 45;
+    this->sendCmd_CS_JOIN_WAIT(0, firstCmdSeq);
+    this->clearAndDispatch();
+    ASSERT_CMD_RESPONSE_SIZE(0);
+    ASSERT_EVENTS_CS_JoinWaitingNotComplete_SIZE(0);
+    ASSERT_TRUE(this->component.m_join_waiting);
+
+    // Second JOIN_WAIT must be rejected while the first is still waiting
+    const U32 secondCmdSeq = 67;
+    this->sendCmd_CS_JOIN_WAIT(0, secondCmdSeq);
+    this->clearAndDispatch();
+    ASSERT_CMD_RESPONSE_SIZE(1);
+    ASSERT_CMD_RESPONSE(0, CmdSequencerComponentImpl::OPCODE_CS_JOIN_WAIT, secondCmdSeq,
+                        Fw::CmdResponse::EXECUTION_ERROR);
+    ASSERT_EVENTS_CS_JoinWaitingNotComplete_SIZE(1);
+    ASSERT_TRUE(this->component.m_join_waiting);
+
+    // Complete the sequence; the first JOIN_WAIT caller receives the completion response
+    this->invoke_to_cmdResponseIn(0, 0, 0, Fw::CmdResponse::OK);
+    this->clearAndDispatch();
+    ASSERT_CMD_RESPONSE_SIZE(1);
+    ASSERT_CMD_RESPONSE(0, CmdSequencerComponentImpl::OPCODE_CS_JOIN_WAIT, firstCmdSeq, Fw::CmdResponse::OK);
+    ASSERT_FALSE(this->component.m_join_waiting);
+}
+
+}  // namespace JoinWait
+
+}  // namespace Svc

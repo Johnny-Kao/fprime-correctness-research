@@ -1,0 +1,132 @@
+// ======================================================================
+// \title  TcpServerSocket.cpp
+// \author mstarch
+// \brief  cpp file for TcpServerSocket core implementation classes
+//
+// \copyright
+// Copyright 2009-2020, by the California Institute of Technology.
+// ALL RIGHTS RESERVED.  United States Government Sponsorship
+// acknowledged.
+//
+// ======================================================================
+#include <Drv/Ip/TcpServerSocket.hpp>
+#include <Fw/FPrimeBasicTypes.hpp>
+#include <Fw/Logger/Logger.hpp>
+#include <Fw/Types/Assert.hpp>
+
+#include <cstring>
+
+namespace Drv {
+
+TcpServerSocket::TcpServerSocket() : IpSocket() {}
+
+U16 TcpServerSocket::getListenPort() {
+    U16 port = this->m_port;
+    return port;
+}
+
+SocketIpStatus TcpServerSocket::startup(SocketDescriptor& socketDescriptor) {
+    struct sockaddr_in address;
+    // Acquire a socket, or return error
+    int serverFd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (serverFd == -1) {
+        return SOCK_FAILED_TO_GET_SOCKET;
+    }
+    // Set up the address port and name
+    address.sin_family = AF_INET;
+    address.sin_port = htons(this->m_port);
+
+    // OS specific settings
+#if defined TGT_OS_TYPE_VXWORKS || TGT_OS_TYPE_DARWIN
+    address.sin_len = static_cast<U8>(sizeof(struct sockaddr_in));
+#endif
+    // Convert the configured IPv4 address (dotted-quad) to a network-order in_addr.
+    const SocketIpStatus addressStatus = IpSocket::addressToIp4(this->m_ipv4_address, &(address.sin_addr));
+    if (addressStatus != SOCK_SUCCESS) {
+        (void)::close(serverFd);
+        return SOCK_INVALID_IP_ADDRESS;
+    };
+
+    if (IpSocket::setupSocketOptions(serverFd) != SOCK_SUCCESS) {
+        (void)::close(serverFd);
+        return SOCK_FAILED_TO_SET_SOCKET_OPTIONS;
+    }
+
+    // TCP requires bind to an address to the socket
+    if (::bind(serverFd, reinterpret_cast<struct sockaddr*>(&address), sizeof(address)) < 0) {
+        (void)::close(serverFd);
+        return SOCK_FAILED_TO_BIND;
+    }
+
+    socklen_t size = sizeof(address);
+    const int socknameStatus = ::getsockname(serverFd, reinterpret_cast<struct sockaddr*>(&address), &size);
+    if (socknameStatus == -1) {
+        (void)::close(serverFd);
+        return SOCK_FAILED_TO_READ_BACK_PORT;
+    }
+    // TCP requires listening on the socket. Since we only expect a single client, set the TCP backlog (second argument)
+    // to 1 to prevent queuing of multiple clients.
+    if (::listen(serverFd, 1) < 0) {
+        (void)::close(serverFd);
+        return SOCK_FAILED_TO_LISTEN;  // What we have here is a failure to communicate
+    }
+    Fw::Logger::log("Listening for single client at %s:%hu\n", this->m_ipv4_address, this->m_port);
+    FW_ASSERT(serverFd != -1);
+    socketDescriptor.serverFd = serverFd;
+    this->m_port = ntohs(address.sin_port);
+    return SOCK_SUCCESS;
+}
+
+void TcpServerSocket::terminate(const SocketDescriptor& socketDescriptor) {
+    if (socketDescriptor.serverFd >= 0) {
+        (void)::shutdown(socketDescriptor.serverFd, SHUT_RDWR);  // Shutdown first to avoid hanging "accept" calls
+        (void)::close(socketDescriptor.serverFd);
+    }
+}
+
+SocketIpStatus TcpServerSocket::openProtocol(SocketDescriptor& socketDescriptor) {
+    int clientFd = -1;
+    int serverFd = socketDescriptor.serverFd;
+
+    // Check for not started yet, may be true in the case of start-up reconnect attempts
+    if (serverFd == -1) {
+        return SOCK_NOT_STARTED;
+    }
+
+    // TCP requires accepting on the socket to get the client socket file descriptor.
+    clientFd = ::accept(serverFd, nullptr, nullptr);
+    if (clientFd < 0) {
+        return SOCK_FAILED_TO_ACCEPT;  // What we have here is a failure to communicate
+    }
+    // Setup client send timeouts
+    if (IpSocket::setupTimeouts(clientFd) != SOCK_SUCCESS) {
+        (void)::close(clientFd);
+        return SOCK_FAILED_TO_SET_SOCKET_OPTIONS;
+    }
+    // Sends to a client that has disconnected must not raise SIGPIPE
+    if (IpSocket::setupNoSigPipe(clientFd) != SOCK_SUCCESS) {
+        (void)::close(clientFd);
+        return SOCK_FAILED_TO_SET_SOCKET_OPTIONS;
+    }
+
+    Fw::Logger::log("Accepted client at %s:%hu\n", this->m_ipv4_address, this->m_port);
+    socketDescriptor.fd = clientFd;
+    return SOCK_SUCCESS;
+}
+
+FwSignedSizeType TcpServerSocket::sendProtocol(const SocketDescriptor& socketDescriptor,
+                                               const U8* const data,
+                                               const FwSizeType size) {
+    return static_cast<FwSignedSizeType>(
+        ::send(socketDescriptor.fd, data, static_cast<size_t>(size), SOCKET_IP_SEND_FLAGS | SEND_NO_SIGNAL_FLAGS));
+}
+
+FwSignedSizeType TcpServerSocket::recvProtocol(const SocketDescriptor& socketDescriptor,
+                                               U8* const data,
+                                               const FwSizeType size) {
+    // recv will return 0 if the client has done an orderly shutdown
+    return static_cast<FwSignedSizeType>(
+        ::recv(socketDescriptor.fd, data, static_cast<size_t>(size), SOCKET_IP_RECV_FLAGS));
+}
+
+}  // namespace Drv

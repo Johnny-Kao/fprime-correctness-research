@@ -1,0 +1,26 @@
+#ifndef _DrvDataBuffer_hpp_
+#define _DrvDataBuffer_hpp_
+
+#include <Fw/FPrimeBasicTypes.hpp>
+#include <Fw/Types/Serializable.hpp>
+
+namespace Drv {
+
+class DataBuffer : public Fw::LinearBufferBase {
+  public:
+    enum { DATA_BUFFER_SIZE = 256, SERIALIZED_SIZE = STATIC_SERIALIZED_SIZE(DATA_BUFFER_SIZE) };
+
+    DataBuffer(const U8* args, FwSizeType size);
+    DataBuffer();
+    DataBuffer(const DataBuffer& other);
+    virtual ~DataBuffer();
+    DataBuffer& operator=(const DataBuffer& other);
+
+    DEPRECATED(FwSizeType getBuffCapacity() const, "Use getCapacity() instead");
+
+  private:
+    U8 m_data[DATA_BUFFER_SIZE];  // packet data buffer
+};
+}  // namespace Drv
+
+#endif

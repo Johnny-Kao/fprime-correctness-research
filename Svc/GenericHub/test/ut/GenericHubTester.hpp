@@ -1,0 +1,216 @@
+// ======================================================================
+// \title  GenericHub/test/ut/Tester.hpp
+// \author mstarch
+// \brief  hpp file for GenericHub test harness implementation class
+//
+// \copyright
+// Copyright 2009-2015, by the California Institute of Technology.
+// ALL RIGHTS RESERVED.  United States Government Sponsorship
+// acknowledged.
+//
+// ======================================================================
+
+#ifndef TESTER_HPP
+#define TESTER_HPP
+#include <Fw/Com/ComBuffer.hpp>
+#include "GenericHubGTestBase.hpp"
+#include "Svc/GenericHub/GenericHub.hpp"
+
+// Larger than com buffer size
+#define DATA_SIZE (FW_COM_BUFFER_MAX_SIZE * 10 + sizeof(U32) + sizeof(U32) + sizeof(FwBuffSizeType))
+
+namespace Svc {
+
+class GenericHubTester : public GenericHubGTestBase {
+    // ----------------------------------------------------------------------
+    // Construction and destruction
+    // ----------------------------------------------------------------------
+
+  public:
+    //! Construct object GenericHubTester
+    //!
+    GenericHubTester();
+
+    //! Destroy object GenericHubTester
+    //!
+    ~GenericHubTester();
+
+  public:
+    // ----------------------------------------------------------------------
+    // Tests
+    // ----------------------------------------------------------------------
+
+    //! Test of basic in/out of a set of serialized ports
+    //!
+    void test_in_out();
+
+    //! Test of buffer in/out of a set of buffer ports
+    //!
+    void test_buffer_io();
+
+    //! Test of random in/out of a set of file and normal ports
+    //!
+    void test_random_io();
+
+    //! Test of telemetry in-out
+    //!
+    void test_telemetry();
+
+    //! Test of telemetry in-out for a specified buffer size
+    //!
+    void test_telemetry_size(U32 size);
+
+    //! Test of event in-out
+    //!
+    void test_events();
+
+    //! Test of event in-out for a specified buffer size
+    //!
+    void test_events_size(U32 size);
+
+    //! Test of commands in-out
+    //!
+    void test_commands();
+
+    //! Test of commands in-out on a nonzero port index
+    //!
+    void test_commands_nonzero_port();
+
+    //! Test invalid input/deserialization guard paths
+    //!
+    void test_invalid_deserialization_paths();
+
+  private:
+    // ----------------------------------------------------------------------
+    // Handlers for typed from ports
+    // ----------------------------------------------------------------------
+
+    //! Handler for from_eventOut
+    //!
+    void from_eventOut_handler(const FwIndexType portNum,       /*!< The port number*/
+                               FwEventIdType id,                /*!< Log ID */
+                               Fw::Time& timeTag,               /*!< Time Tag  */
+                               const Fw::LogSeverity& severity, /*!< The severity argument */
+                               Fw::LogBuffer& args              /*!< Buffer containing serialized log entry */
+    );
+
+    //! Handler for from_tlmOut
+    //!
+    void from_tlmOut_handler(const FwIndexType portNum, /*!< The port number*/
+                             FwChanIdType id,           /*!< Telemetry Channel ID */
+                             Fw::Time& timeTag,         /*!< Time Tag */
+                             Fw::TlmBuffer& val         /*!< Buffer containing serialized telemetry value */
+    );
+
+    //! Handler for from_cmdDispOut
+    //!
+    void from_cmdDispOut_handler(const FwIndexType portNum, /*!< The port number*/
+                                 Fw::ComBuffer& data,       /*!< Buffer containing packet data */
+                                 U32 context                /*!< Call context value; meaning chosen by user */
+    );
+
+    //! Handler for from_cmdRespOut
+    //!
+    void from_cmdRespOut_handler(const FwIndexType portNum,      /*!< The port number*/
+                                 FwOpcodeType opCode,            /*!< Command Op Code */
+                                 U32 cmdSeq,                     /*!< Command Sequence */
+                                 const Fw::CmdResponse& response /*!< The command response argument */
+    );
+
+    //! Handler for from_bufferOut
+    //!
+    void from_bufferOut_handler(const FwIndexType portNum, /*!< The port number*/
+                                Fw::Buffer& fwBuffer);
+
+    //! Handler for from_bufferInReturn
+    //!
+    void from_bufferInReturn_handler(const FwIndexType portNum, /*!< The port number*/
+                                     Fw::Buffer& fwBuffer);
+
+    //! Handler for from_allocate
+    //!
+    Fw::Buffer from_allocate_handler(const FwIndexType portNum, /*!< The port number*/
+                                     FwSizeType size);
+
+    //! Handler for from_toBufferDriver
+    //!
+    void from_toBufferDriver_handler(const FwIndexType portNum, /*!< The port number*/
+                                     Fw::Buffer& fwBuffer);
+
+    //! Handler for from_dataDeallocate
+    //!
+    void from_fromBufferDriverReturn_handler(const FwIndexType portNum, /*!< The port number*/
+                                             Fw::Buffer& fwBuffer);
+
+  private:
+    // ----------------------------------------------------------------------
+    // Handlers for serial from ports
+    // ----------------------------------------------------------------------
+
+    //! Handler for from_serialOut
+    //!
+    void from_serialOut_handler(FwIndexType portNum,         /*!< The port number*/
+                                Fw::LinearBufferBase& Buffer /*!< The serialization buffer*/
+    );
+
+  private:
+    void send_random_comm(U32 port);
+
+    void send_random_buffer(U32 port);
+
+    void random_fill(Fw::SerialBufferBase& buffer, U32 max_size);
+
+    //! Fill a buffer with a specified number of bytes
+    //!
+    void fill(Fw::SerialBufferBase& buffer, U32 size);
+
+    void test_command_dispatch();
+
+    void test_command_response();
+
+    void send_from_driver_packet(U32 type,
+                                 U32 port,
+                                 FwBuffSizeType declaredSize,
+                                 const U8* payload,
+                                 FwBuffSizeType payloadSize);
+
+    void assert_no_outputs_sent();
+
+    // ----------------------------------------------------------------------
+    // Helper methods
+    // ----------------------------------------------------------------------
+
+    //! Connect ports
+    //!
+    void connectPorts();
+
+    //! Initialize components
+    //!
+    void initComponents();
+
+  private:
+    // ----------------------------------------------------------------------
+    // Variables
+    // ----------------------------------------------------------------------
+
+    //! The component under test
+    //!
+    GenericHub componentIn;
+    GenericHub componentOut;
+    Fw::ComBuffer m_comm;
+    Fw::Buffer m_buffer;
+    Fw::Buffer m_allocate;
+    U32 m_comm_in;
+    U32 m_buffer_in;
+    U32 m_comm_out;
+    U32 m_buffer_out;
+    U32 m_current_port;
+    FwIndexType m_cmdDispOutPort;
+    FwIndexType m_cmdRespOutPort;
+    U8 m_data_store[DATA_SIZE];
+    U8 m_data_for_allocation[DATA_SIZE];
+};
+
+}  // end namespace Svc
+
+#endif

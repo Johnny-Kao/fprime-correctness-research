@@ -1,0 +1,159 @@
+// ======================================================================
+// \title  LinuxGpioDriver.hpp
+// \author lestarch
+// \brief  hpp file for LinuxGpioDriver component implementation class
+//
+// \copyright
+// Copyright 2009-2015, by the California Institute of Technology.
+// ALL RIGHTS RESERVED.  United States Government Sponsorship
+// acknowledged.
+//
+// ======================================================================
+
+#ifndef DRV_LINUX_GPIO_DRIVER_HPP
+#define DRV_LINUX_GPIO_DRIVER_HPP
+
+#include <Os/File.hpp>
+#include <Os/Mutex.hpp>
+#include <Os/Task.hpp>
+#include "Drv/LinuxGpioDriver/LinuxGpioDriverComponentAc.hpp"
+
+namespace Drv {
+
+class LinuxGpioDriver final : public LinuxGpioDriverComponentBase {
+  public:
+    static constexpr FwSizeType GPIO_POLL_TIMEOUT = 500;  // Timeout looking for interrupts to check for shutdown
+    // ----------------------------------------------------------------------
+    // Construction, initialization, and destruction
+    // ----------------------------------------------------------------------
+
+    //! Construct object LinuxGpioDriver
+    //!
+    LinuxGpioDriver(const char* const compName /*!< The component name*/
+    );
+
+    //! Destroy object LinuxGpioDriver
+    //!
+    ~LinuxGpioDriver();
+
+    //! \brief configure the GPIO pin
+    //!
+    //! Configure the GPIO pin for use in this driver. Only one mode may be selected as a time.
+    enum GpioConfiguration {
+        GPIO_OUTPUT,                                   //!< Output GPIO pin for direct writing
+        GPIO_INPUT,                                    //!< Input GPIO pin for direct reading
+        GPIO_INTERRUPT_RISING_EDGE,                    //!< Input GPIO pin triggers interrupt port on rising edge
+        GPIO_INTERRUPT_FALLING_EDGE,                   //!< Input GPIO pin triggers interrupt port on falling edge
+        GPIO_INTERRUPT_BOTH_RISING_AND_FALLING_EDGES,  //!< Input GPIO pin triggers interrupt port on both edges
+        MAX_GPIO_CONFIGURATION
+    };
+
+    //! \brief Linux GPIO character device uAPI version used for the opened pin
+    enum ApiVersion {
+        API_V2,             //!< Version 2 (gpio_v2_*) uAPI
+        API_V1,             //!< Deprecated version 1 (gpiohandle_*/gpioevent_*) uAPI
+        API_VERSION_UNSET,  //!< No pin opened yet
+    };
+
+    //! \brief open a GPIO pin for use in the system
+    //!
+    //! This function opens and configures a GPIO pin. User must supply the device path and the gpio pin registered to
+    //! that device. Pin configuration is also accepted and supports: input, output, and interrupts on either edge.
+    //! The version 2 GPIO character device uAPI is used when the kernel supports it (detected via a v2 line-info
+    //! probe); otherwise the deprecated version 1 uAPI is used. Errors from the selected uAPI are reported as-is.
+    //!
+    //! If the user selects output, a default state can be set with the default_state flag.
+    //!
+    //! \param device: /dev/gpiochip* path for this pin's bank
+    //! \param gpio: pin or line number on the above chip
+    //! \param configuration: pin configuration
+    //! \param default_state: default state when using output configuration
+    //! \return status of the gpio open OP_OK on success, something else on error
+    Os::File::Status open(const char* device,
+                          const U32 gpio,
+                          const GpioConfiguration& configuration,
+                          const Fw::Logic& default_state = Fw::Logic::LOW);
+
+    //! \brief start interrupt detection thread
+    //!
+    Drv::GpioStatus start(const FwTaskPriorityType priority = Os::Task::TASK_PRIORITY_DEFAULT,
+                          const FwSizeType stackSize = Os::Task::TASK_DEFAULT,
+                          const FwSizeType cpuAffinity = Os::Task::TASK_DEFAULT,
+                          const FwTaskIdType identifier = static_cast<FwTaskIdType>(Os::Task::TASK_DEFAULT));
+
+    //! \brief stop interrupt detection thread
+    //!
+    void stop();
+
+    //! \brief join interrupt detection thread
+    //!
+    void join();
+
+  private:
+    //! \brief helper to setup a line request using the v2 uAPI (all configurations)
+    Os::File::Status setupLineRequestV2(const int chip_descriptor,
+                                        const U32 gpio,
+                                        const GpioConfiguration& configuration,
+                                        const Fw::Logic& default_state,
+                                        int& fd);
+
+    //! \brief helper to setup a line handle (read or write) using the deprecated v1 uAPI
+    Os::File::Status setupLineHandle(const int chip_descriptor,
+                                     const U32 gpio,
+                                     const GpioConfiguration& configuration,
+                                     const Fw::Logic& default_state,
+                                     int& fd);
+
+    //! \brief helper to setup a line event (interrupt) using the deprecated v1 uAPI
+    Os::File::Status setupLineEvent(const int chip_descriptor,
+                                    const U32 gpio,
+                                    const GpioConfiguration& configuration,
+                                    int& fd);
+
+    //! \brief poll for interrupt loop helper
+    //!
+    void pollLoop();
+
+    //! \brief helper to get running state
+    //!
+    bool getRunning();
+
+    //! \brief interrupt function
+    //!
+    static void interruptFunction(void* self);
+
+    // ----------------------------------------------------------------------
+    // Handler implementations for user-defined typed input ports
+    // ----------------------------------------------------------------------
+
+    //! Handler implementation for gpioRead
+    //!
+    Drv::GpioStatus gpioRead_handler(const FwIndexType portNum, /*!< The port number*/
+                                     Fw::Logic& state);
+
+    //! Handler implementation for gpioWrite
+    //!
+    Drv::GpioStatus gpioWrite_handler(const FwIndexType portNum, /*!< The port number*/
+                                      const Fw::Logic& state);
+    //! Task to run interrupt polling
+    Os::Task m_poller;
+
+    //! Mutex for locking m_running state
+    Os::Mutex m_lock;
+
+    //! Pin configuration
+    GpioConfiguration m_configuration = GpioConfiguration::MAX_GPIO_CONFIGURATION;
+
+    //! uAPI version in use for the opened pin
+    ApiVersion m_apiVersion = ApiVersion::API_VERSION_UNSET;
+
+    //! File descriptor for GPIO
+    int m_fd = -1;
+
+    //! Determine if the interrupt polling thread is running
+    bool m_running = false;
+};
+
+}  // end namespace Drv
+
+#endif  // DRV_LINUX_GPIO_DRIVER_HPP

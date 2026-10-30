@@ -1,0 +1,274 @@
+####
+# config_assembler.cmake:
+#
+# CMake configuration handling function.
+####
+include_guard()
+
+
+####
+# Function `fprime__internal_process_configuration_sources`:
+#
+# This function will process the configuration sources from various calls to set up configuration modules. It will
+# ensure that SOURCES/HEADERS are unique across module and will ensure CONFIGURATION_OVERRIDES override existing source
+# and header files.
+#
+# Arguments:
+# - `MODULE_NAME`: the name of the module being processed
+# - `SOURCES`: list of sources to process
+# - `AUTOCODER_INPUTS`: list of autocoder inputs to process
+# - `HEADERS`: list of headers to process
+# - `OVERRIDES`: list of configuration overrides to process
+# - `DEPENDS`: list of dependencies to append to
+#
+# Returns:
+# - `INTERNAL_SOURCES`: list of sources in their final configuration location (set in caller)
+# - `INTERNAL_AUTOCODER_INPUTS`: list of autocoder inputs in their final configuration location (set in caller)
+# - `INTERNAL_HEADERS`: list of headers in their final configuration location (set in caller)
+# - `INTERNAL_DEPENDS`: list of dependencies, new and old
+####
+function(fprime__internal_process_configuration_sources MODULE_NAME SOURCES AUTOCODER_INPUTS HEADERS OVERRIDES DEPENDS)
+    # Process source files and update INTERNAL_SOURCES in caller and track new dependencies
+    fprime__internal_process_configuration_source_set(
+        "${MODULE_NAME}" "${SOURCES}" FALSE TRUE
+    )
+    set(INTERNAL_SOURCES "${PROCESSED_SOURCES}" PARENT_SCOPE)
+    set(DEPENDS ${DEPENDS} ${NEW_DEPENDS})
+    # Process source files and update INTERNAL_AUTOCODER_INPUTS in caller and track new dependencies
+    # Autocoder inputs are consumed via absolute paths, thus include path conflicts are not checked
+    fprime__internal_process_configuration_source_set(
+        "${MODULE_NAME}" "${AUTOCODER_INPUTS}" FALSE FALSE
+    )
+    set(INTERNAL_AUTOCODER_INPUTS "${PROCESSED_SOURCES}" PARENT_SCOPE)
+    set(DEPENDS ${DEPENDS} ${NEW_DEPENDS})
+    # Process header files and update INTERNAL_HEADERS in caller and track new dependencies
+    fprime__internal_process_configuration_source_set(
+        "${MODULE_NAME}" "${HEADERS}" FALSE TRUE
+    )
+    set(INTERNAL_HEADERS "${PROCESSED_SOURCES}" PARENT_SCOPE)
+    set(DEPENDS ${DEPENDS} ${NEW_DEPENDS})
+    # Process configuration overrides. Since these are already in a module, they need not be updated in caller.
+    # New dependencies are tracked.
+    fprime__internal_process_configuration_source_set(
+        "${MODULE_NAME}" "${OVERRIDES}" TRUE FALSE
+    )
+    set(INTERNAL_DEPENDS ${DEPENDS} ${NEW_DEPENDS} PARENT_SCOPE)
+endfunction()
+
+####
+# Function `fprime__internal_process_configuration_source_set`:
+#
+# Processes a single set of configuration files checking to see if files collide and if they must collide.
+#
+# Arguments:
+# - `MODULE_NAME`: the name of the module being processed
+# - `SOURCE_SET`: list of sources to process
+# - `EXPECT_OVERRIDE`: if true, the source must exist and will be overridden, false if it must not exist
+# - `CHECK_INCLUDE_CONFLICTS`: if true, check new sources for include path conflicts with the build cache
+#
+# Returns:
+# - `PROCESSED_SOURCES`: list (set in caller)
+# - `NEW_DEPENDS`: list of new dependencies (set in caller)
+####
+function(fprime__internal_process_configuration_source_set MODULE_NAME SOURCE_SET EXPECT_OVERRIDE CHECK_INCLUDE_CONFLICTS)
+    list(REMOVE_DUPLICATES SOURCE_SET)
+    set(RETURNED_SOURCES)
+    set(NEW_DEPENDS)
+
+    foreach(SOURCE IN LISTS SOURCE_SET)
+        get_filename_component(SOURCE_NAME "${SOURCE}" NAME)
+
+        fprime_internal_get_configuration_destination("${MODULE_NAME}" "${SOURCE_NAME}")
+
+        # Check if the source cannot exist, and yet it was found
+        if (NOT EXPECT_OVERRIDE AND DESTINATION_OVERRIDE)
+            message(FATAL_ERROR
+                "${SOURCE_NAME} is SOURCE/HEADER but overrides existing file: ${DESTINATION}. Use CONFIGURATION_OVERRIDES.")
+        # Check if the source must exist, and yet it was not found
+        elseif (EXPECT_OVERRIDE AND NOT DESTINATION_OVERRIDE)
+            message(FATAL_ERROR
+                "${SOURCE_NAME} is CONFIGURATION_OVERRIDE but overrides nonexistent file: ${DESTINATION}. Use SOURCES/HEADERS.")
+        # If the source must exist and it was found, overwrite it
+        elseif(EXPECT_OVERRIDE)
+            fprime_cmake_debug_message("[config] Overriding ${DESTINATION} with ${SOURCE}")
+            fprime__internal_record_configuration_write("${SOURCE}" "${DESTINATION}")
+            list(APPEND NEW_DEPENDS "${DESTINATION_MODULE}")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SOURCE}")
+        # If the source is new, move it to the binary directory
+        else()
+            if (CHECK_INCLUDE_CONFLICTS)
+                fprime__internal_check_configuration_include_path("${MODULE_NAME}" "${SOURCE}")
+            endif()
+            fprime_cmake_debug_message("[config] Initial config ${DESTINATION} from ${SOURCE}")
+            list(APPEND RETURNED_SOURCES "${DESTINATION}")
+            file(MAKE_DIRECTORY "${DESTINATION_DIRECTORY}")
+            fprime__internal_record_configuration_write("${SOURCE}" "${DESTINATION}")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SOURCE}")
+        endif()
+    endforeach()
+    set(PROCESSED_SOURCES "${RETURNED_SOURCES}" PARENT_SCOPE)
+    set(NEW_DEPENDS "${NEW_DEPENDS}" PARENT_SCOPE)
+endfunction()
+
+####
+# Function `fprime__internal_check_configuration_include_path`:
+#
+# Configuration files are copied into the build cache and are included via the configuration
+# include root: the parent of the module's directory in the build cache. This function ensures
+# that the original source file cannot be found at that same include path via any source include
+# root (project root, framework path, and library locations). If it can, the source tree file and
+# the build cache copy conflict over the include path and a FATAL_ERROR is raised. Configuration
+# files living directly at a source include root conflict in the same way and are also fatal.
+#
+# For example, a config module registered at ROOT/config with a file ROOT/config/my.h would be
+# copied to <build cache>/config/my.h and included as "config/my.h" via the configuration include
+# root. Since ROOT is also an include root, "config/my.h" would resolve to both files.
+#
+# Arguments:
+# - `MODULE_NAME`: the name of the module being processed
+# - `SOURCE`: absolute path to the configuration source file being processed
+####
+function(fprime__internal_check_configuration_include_path MODULE_NAME SOURCE)
+    get_filename_component(SOURCE_NAME "${SOURCE}" NAME)
+    get_filename_component(MODULE_DIRECTORY_NAME "${CMAKE_CURRENT_BINARY_DIR}" NAME)
+    # Include path at which the build cache copy will be found via the configuration include root
+    # (the parent of the module's binary directory)
+    cmake_path(SET CONFIG_INCLUDE_PATH NORMALIZE "${MODULE_DIRECTORY_NAME}/${SOURCE_NAME}")
+    # Check the source file's include path with respect to each source include root
+    get_property(SOURCE_LOCATIONS TARGET "${FPRIME_GLOBAL_INTERFACE_TARGET}" PROPERTY FPRIME_SOURCE_LOCATIONS)
+    foreach(SOURCE_LOCATION IN LISTS SOURCE_LOCATIONS)
+        cmake_path(IS_PREFIX SOURCE_LOCATION "${SOURCE}" NORMALIZE IS_UNDER_LOCATION)
+        if (NOT IS_UNDER_LOCATION)
+            continue()
+        endif()
+        cmake_path(RELATIVE_PATH SOURCE BASE_DIRECTORY "${SOURCE_LOCATION}" OUTPUT_VARIABLE SOURCE_INCLUDE_PATH)
+        if (SOURCE_INCLUDE_PATH STREQUAL CONFIG_INCLUDE_PATH OR SOURCE_INCLUDE_PATH STREQUAL SOURCE_NAME)
+            fprime_cmake_fatal_error(
+                "Configuration file '${SOURCE}' of module '${MODULE_NAME}' is available as"
+                "'${SOURCE_INCLUDE_PATH}' via include root '${SOURCE_LOCATION}'. This conflicts with the"
+                "copy at the same path within the build cache. Move the configuration files or the"
+                "register_fprime_config() call such that the paths differ."
+            )
+        endif()
+    endforeach()
+endfunction()
+
+####
+# Function `fprime__internal_record_configuration_write`:
+#
+# Records the source that should end up at a configuration destination. The last source recorded for
+# a destination wins, which is the overriding one: a module supplying a CONFIGURATION_OVERRIDE is
+# always processed after the module supplying the file it overrides, since the override is rejected
+# outright when that file has not been registered yet.
+#
+# Copying here rather than at the flush would write an overridden destination twice per CMake run,
+# once with the original and once with the override. Neither write can be skipped by
+# `ONLY_IF_DIFFERENT` because the file holds the other one's content, so the destination's timestamp
+# moves on every configure and everything including it is rebuilt.
+#
+# The destination is still created when it does not exist, because it is handed to CMake as a build
+# input before the deferred flush runs.
+#
+# Arguments:
+# - `SOURCE`: file that should be copied
+# - `DESTINATION`: location it belongs at
+####
+function(fprime__internal_record_configuration_write SOURCE DESTINATION)
+    get_property(RECORDED_DESTINATIONS GLOBAL PROPERTY FPRIME_CONFIG_DESTINATIONS)
+    get_property(RECORDED_SOURCES GLOBAL PROPERTY FPRIME_CONFIG_SOURCES)
+
+    list(FIND RECORDED_DESTINATIONS "${DESTINATION}" DESTINATION_INDEX)
+    if (DESTINATION_INDEX EQUAL -1)
+        list(APPEND RECORDED_DESTINATIONS "${DESTINATION}")
+        list(APPEND RECORDED_SOURCES "${SOURCE}")
+    else()
+        list(REMOVE_AT RECORDED_SOURCES ${DESTINATION_INDEX})
+        list(INSERT RECORDED_SOURCES ${DESTINATION_INDEX} "${SOURCE}")
+    endif()
+    set_property(GLOBAL PROPERTY FPRIME_CONFIG_DESTINATIONS "${RECORDED_DESTINATIONS}")
+    set_property(GLOBAL PROPERTY FPRIME_CONFIG_SOURCES "${RECORDED_SOURCES}")
+
+    if (NOT EXISTS "${DESTINATION}")
+        file(COPY_FILE "${SOURCE}" "${DESTINATION}")
+    endif()
+
+    # Scheduled once. Deferring to the top-level directory means every configuration module has been
+    # processed, and every override therefore known, by the time destinations are written.
+    get_property(FLUSH_SCHEDULED GLOBAL PROPERTY FPRIME_CONFIG_FLUSH_SCHEDULED)
+    if (NOT FLUSH_SCHEDULED)
+        set_property(GLOBAL PROPERTY FPRIME_CONFIG_FLUSH_SCHEDULED TRUE)
+        cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}"
+                       CALL fprime__internal_flush_configuration)
+    endif()
+endfunction()
+
+####
+# Function `fprime__internal_flush_configuration`:
+#
+# Writes every recorded configuration destination exactly once, from the source that won it. A
+# destination that already holds the winning content is left alone by `ONLY_IF_DIFFERENT`, which is
+# what keeps its timestamp, and everything including it, stable across configures.
+####
+function(fprime__internal_flush_configuration)
+    get_property(RECORDED_DESTINATIONS GLOBAL PROPERTY FPRIME_CONFIG_DESTINATIONS)
+    get_property(RECORDED_SOURCES GLOBAL PROPERTY FPRIME_CONFIG_SOURCES)
+
+    foreach(DESTINATION SOURCE IN ZIP_LISTS RECORDED_DESTINATIONS RECORDED_SOURCES)
+        file(COPY_FILE "${SOURCE}" "${DESTINATION}" ONLY_IF_DIFFERENT)
+    endforeach()
+endfunction()
+
+####
+# Function `fprime_internal_get_configuration_destination`:
+#
+# This function will determine the destination of a configuration file by checking to see if the file is in use by any
+# other configuration modules. If it is, it will return the destination of the read from that module's original source
+# via the DESTINATION variable. If it is not, it will unset the DESTINATION variable in PARENT_SCOPE.
+#
+# Arguments:
+# - `CONFIG_NAME`: the relative path to the configuration file
+#
+# Returns:
+# - `DESTINATION`: the destination of the configuration file or unset (in caller)
+####
+function(fprime_internal_get_configuration_destination MODULE_NAME NEW_CONFIG_NAME)
+    # Get all registered configuration modules
+    get_property(CONFIG_MODULES GLOBAL PROPERTY FPRIME_CONFIG_MODULES)
+    foreach(CONFIG_MODULE IN LISTS CONFIG_MODULES)
+        # Read the sources, headers, and autocoder inputs from the module
+        get_target_property(CONFIG_SOURCES ${CONFIG_MODULE} SUPPLIED_SOURCES)
+        get_target_property(CONFIG_HEADERS ${CONFIG_MODULE} SUPPLIED_HEADERS)
+        get_target_property(CONFIG_AUTOCODER_INPUTS ${CONFIG_MODULE} SUPPLIED_AUTOCODER_INPUTS)
+
+        # Loop through all read files
+        foreach(CONFIG_FILE IN LISTS CONFIG_SOURCES CONFIG_HEADERS CONFIG_AUTOCODER_INPUTS)
+            # Determine if the names match, if so set the destination
+            get_filename_component(CONFIG_NAME "${CONFIG_FILE}" NAME)
+            if (NEW_CONFIG_NAME STREQUAL CONFIG_NAME)
+                set(DESTINATION "${CONFIG_FILE}" PARENT_SCOPE)
+                set(DESTINATION_MODULE "${CONFIG_MODULE}" PARENT_SCOPE)
+                set(DESTINATION_OVERRIDE TRUE PARENT_SCOPE)
+                return()
+            endif()
+        endforeach()
+    endforeach()
+    # F Prime sub-builds still need to calculate (and copy) the files to the base build cache specified by FPRIME_BINARY_DIR
+    # This is needed for locations generation to calculate the correct paths.
+    #
+    # This code calculates the relative path from the cmake build cache of the current built to the current binary directory.
+    # This is the relative path within the build current build cache.  Then it applies this relative path to FPRIME_BINARY_DIR
+    # if it is set, otherwise it just recalculates the current binary directory.
+    cmake_path(RELATIVE_PATH CMAKE_CURRENT_BINARY_DIR BASE_DIRECTORY ${CMAKE_BINARY_DIR} OUTPUT_VARIABLE RELATIVE_PATH)
+    
+    set(DESTINATION_BASE "${CMAKE_BINARY_DIR}")
+    if (DEFINED FPRIME_BINARY_DIR)
+        set(DESTINATION_BASE "${FPRIME_BINARY_DIR}")
+    endif()
+    get_filename_component(SOURCE_NAME "${NEW_CONFIG_NAME}" NAME)
+    set(DESTINATION_DIRECTORY "${DESTINATION_BASE}/${RELATIVE_PATH}")
+    set(DESTINATION "${DESTINATION_DIRECTORY}/${SOURCE_NAME}" PARENT_SCOPE)
+    set(DESTINATION_MODULE "${MODULE_NAME}" PARENT_SCOPE)
+    set(DESTINATION_DIRECTORY "${DESTINATION_DIRECTORY}" PARENT_SCOPE)
+    set(DESTINATION_OVERRIDE FALSE PARENT_SCOPE)
+endfunction()
+
