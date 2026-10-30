@@ -529,7 +529,7 @@ bool FileWorker ::writeBufferHashToFile(Fw::Buffer& buffer, const char* fileName
     if (writtenSize != hashSize) {
         Fw::LogStringArg logStringArg(hashFileName);
         this->log_WARNING_LO_WriteValidationError(logStringArg, writtenSize, hashSize);
-        return true;
+        return false;
     }
 
     return true;
