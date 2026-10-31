@@ -1,0 +1,13 @@
+------------------------------------------------------------------------------
+                           GCC Code Coverage Report
+Directory: ../../TestDeploymentsProject
+------------------------------------------------------------------------------
+File                                       Lines    Exec  Cover   Missing
+------------------------------------------------------------------------------
+/home/runner/work/fprime-correctness-research/fprime-correctness-research/Svc/LinuxTimer/LinuxTimerCommon.cpp
+                                               7       7   100%
+/home/runner/work/fprime-correctness-research/fprime-correctness-research/Svc/LinuxTimer/LinuxTimerFd.cpp
+                                              36      29    80%   31-32,45,53-54,73-74
+------------------------------------------------------------------------------
+TOTAL                                         43      36    83%
+------------------------------------------------------------------------------
