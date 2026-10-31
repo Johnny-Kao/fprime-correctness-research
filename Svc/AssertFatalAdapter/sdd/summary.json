@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "artifact": "sdd",
+  "generated_at": "2026-10-31T00:17:28Z",
+  "ref": "devel",
+  "commit": "77101cb40e05588d7d1e9f8ae73c88e74a01c32a",
+  "tier": "silver",
+  "has_sdd": true,
+  "sections": 12,
+  "filled_sections": 3,
+  "prose_words": 175,
+  "placeholder_hits": 0,
+  "table_kinds": [
+    "ports"
+  ],
+  "declared_kinds": [
+    "events"
+  ],
+  "rendered_url": "https://fprime.jpl.nasa.gov/devel/Svc/AssertFatalAdapter/docs/sdd/",
+  "doxygen": [
+    {
+      "name": "Svc::AssertFatalAdapterComponentImpl",
+      "url": "https://fprime.jpl.nasa.gov/devel/docs/reference/api/cpp/html/class_svc_1_1_assert_fatal_adapter_component_impl.html"
+    }
+  ]
+}

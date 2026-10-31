@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "artifact": "sdd",
+  "generated_at": "2026-10-31T00:17:28Z",
+  "ref": "devel",
+  "commit": "77101cb40e05588d7d1e9f8ae73c88e74a01c32a",
+  "tier": "bronze",
+  "has_sdd": true,
+  "sections": 9,
+  "filled_sections": 0,
+  "prose_words": 31,
+  "placeholder_hits": 0,
+  "table_kinds": [],
+  "declared_kinds": [
+    "commands",
+    "events",
+    "parameters",
+    "ports",
+    "telemetry"
+  ],
+  "rendered_url": "https://fprime.jpl.nasa.gov/devel/TestDeploymentsProject/Ref/SendBuffApp/docs/sdd/",
+  "doxygen": [
+    {
+      "name": "Ref::SendBuffImpl",
+      "url": "https://fprime.jpl.nasa.gov/devel/docs/reference/api/cpp/html/class_ref_1_1_send_buff_impl.html"
+    }
+  ]
+}

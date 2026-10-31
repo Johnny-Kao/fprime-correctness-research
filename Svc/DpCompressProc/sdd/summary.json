@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "artifact": "sdd",
+  "generated_at": "2026-10-31T00:17:28Z",
+  "ref": "devel",
+  "commit": "77101cb40e05588d7d1e9f8ae73c88e74a01c32a",
+  "tier": "bronze",
+  "has_sdd": true,
+  "sections": 15,
+  "filled_sections": 5,
+  "prose_words": 884,
+  "placeholder_hits": 0,
+  "table_kinds": [],
+  "declared_kinds": [
+    "data_products",
+    "events",
+    "parameters",
+    "ports"
+  ],
+  "rendered_url": "https://fprime.jpl.nasa.gov/devel/Svc/DpCompressProc/docs/sdd/",
+  "doxygen": [
+    {
+      "name": "Svc::DpCompressProc",
+      "url": "https://fprime.jpl.nasa.gov/devel/docs/reference/api/cpp/html/class_svc_1_1_dp_compress_proc.html"
+    }
+  ]
+}

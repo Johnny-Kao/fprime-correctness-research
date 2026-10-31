@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "artifact": "sdd",
+  "generated_at": "2026-10-31T00:17:28Z",
+  "ref": "devel",
+  "commit": "77101cb40e05588d7d1e9f8ae73c88e74a01c32a",
+  "tier": "gold",
+  "has_sdd": true,
+  "sections": 50,
+  "filled_sections": 24,
+  "prose_words": 3786,
+  "placeholder_hits": 0,
+  "table_kinds": [
+    "events",
+    "parameters",
+    "ports",
+    "telemetry"
+  ],
+  "declared_kinds": [
+    "commands",
+    "events",
+    "parameters",
+    "ports",
+    "telemetry"
+  ],
+  "rendered_url": "https://fprime.jpl.nasa.gov/devel/Svc/Ccsds/CfdpManager/docs/sdd/",
+  "doxygen": [
+    {
+      "name": "Svc::Ccsds::Cfdp::CfdpManager",
+      "url": "https://fprime.jpl.nasa.gov/devel/docs/reference/api/cpp/html/class_svc_1_1_ccsds_1_1_cfdp_1_1_cfdp_manager.html"
+    }
+  ]
+}
