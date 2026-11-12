@@ -42,7 +42,7 @@ Fw/DataStructures/Array.hpp                   46      46   100%
 Fw/DataStructures/ArrayMap.hpp                17      17   100%
 Fw/DataStructures/ArraySet.hpp                17      17   100%
 Fw/DataStructures/ArraySetOrMapImpl.hpp       96      95    99%   170
-Fw/DataStructures/CircularIndex.hpp           38      37    97%   101
+Fw/DataStructures/CircularIndex.hpp           38      38   100%
 Fw/DataStructures/ExternalArray.hpp           57      57   100%
 Fw/DataStructures/ExternalArrayMap.hpp        32      32   100%
 Fw/DataStructures/ExternalArraySet.hpp        34      34   100%
@@ -135,7 +135,7 @@ googletest/googletest/include/gtest/gtest-printers.h
 googletest/googletest/include/gtest/gtest-test-part.h
                                                1       1   100%
 googletest/googletest/include/gtest/gtest.h
-                                              43      22    51%   244,252,257-258,339,1338,1343,1362,1407,1411-1413,1555-1557,1559-1561,1565-1566,1663
+                                              43      23    53%   244,252,257-258,339,1338,1343,1407,1411-1413,1555-1557,1559-1561,1565-1566,1663
 googletest/googletest/include/gtest/internal/gtest-death-test-internal.h
                                                6       4    66%   95-96
 googletest/googletest/include/gtest/internal/gtest-internal.h
@@ -172,7 +172,7 @@ Os/Generic/PriorityMemQueue.cpp              352     319    90%   79-80,110-111,
 Os/Generic/PriorityMemQueue.hpp                7       7   100%
 Os/Generic/PriorityQueue.cpp                 166     139    83%   77,79-80,90-91,93-95,107-109,111-114,124-127,129-133,193,262-263
 Os/Generic/PriorityQueue.hpp                   1       1   100%
-Os/Generic/Types/AtomicQueue.cpp             169     157    92%   21-26,28,248-249,253,318,346
+Os/Generic/Types/AtomicQueue.cpp             169     155    91%   21-26,28,194,248-249,253,318,343,346
 Os/Generic/Types/AtomicQueue.hpp               4       4   100%
 Os/Generic/Types/MaxHeap.cpp                 107     107   100%
 Os/IntervalTimer.cpp                          15      14    93%   26
