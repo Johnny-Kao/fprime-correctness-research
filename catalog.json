@@ -3,7 +3,7 @@
   "ref": "devel",
   "ref_type": "branch",
   "commit": "77101cb40e05588d7d1e9f8ae73c88e74a01c32a",
-  "generated_at": "2026-11-17T03:38:41Z",
+  "generated_at": "2026-11-17T04:30:30Z",
   "thresholds": {
     "platinum": 95.0,
     "gold": 90.0,
@@ -24,13 +24,13 @@
   },
   "overall_int": {
     "line_pct": 33.38,
-    "line_covered": 10793,
+    "line_covered": 10791,
     "line_total": 32329,
     "function_pct": 41.99,
     "function_covered": 1844,
     "function_total": 4391,
-    "branch_pct": 22.17,
-    "branch_covered": 3781,
+    "branch_pct": 22.16,
+    "branch_covered": 3780,
     "branch_total": 17057,
     "report": "int-coverage/coverage-all.html",
     "tier": "bronze"
@@ -4460,14 +4460,14 @@
         "tier": "silver"
       },
       "int": {
-        "line_pct": 41.13,
-        "line_covered": 102,
+        "line_pct": 41.53,
+        "line_covered": 103,
         "line_total": 248,
         "function_pct": 40.68,
         "function_covered": 24,
         "function_total": 59,
-        "branch_pct": 32.74,
-        "branch_covered": 37,
+        "branch_pct": 33.63,
+        "branch_covered": 38,
         "branch_total": 113,
         "report": "Fw/Time/int-coverage/index.html",
         "tier": "bronze"
@@ -4800,14 +4800,14 @@
         "tier": "bronze"
       },
       "int": {
-        "line_pct": 40.69,
-        "line_covered": 1383,
+        "line_pct": 40.6,
+        "line_covered": 1380,
         "line_total": 3399,
         "function_pct": 44.85,
         "function_covered": 261,
         "function_total": 582,
-        "branch_pct": 30.54,
-        "branch_covered": 449,
+        "branch_pct": 30.34,
+        "branch_covered": 446,
         "branch_total": 1470,
         "report": "Os/int-coverage/index.html",
         "tier": "bronze"
@@ -4964,8 +4964,8 @@
         "function_pct": 27.17,
         "function_covered": 25,
         "function_total": 92,
-        "branch_pct": 15.77,
-        "branch_covered": 76,
+        "branch_pct": 15.56,
+        "branch_covered": 75,
         "branch_total": 482,
         "report": "Os/Generic/int-coverage/index.html",
         "tier": "bronze"
@@ -5055,8 +5055,8 @@
         "function_pct": 44.44,
         "function_covered": 12,
         "function_total": 27,
-        "branch_pct": 22.58,
-        "branch_covered": 21,
+        "branch_pct": 21.51,
+        "branch_covered": 20,
         "branch_total": 93,
         "report": "Os/Generic/Types/int-coverage/index.html",
         "tier": "bronze"
@@ -5207,14 +5207,14 @@
         "tier": "bronze"
       },
       "int": {
-        "line_pct": 51.36,
-        "line_covered": 396,
+        "line_pct": 50.97,
+        "line_covered": 393,
         "line_total": 771,
         "function_pct": 66.67,
         "function_covered": 64,
         "function_total": 96,
-        "branch_pct": 35.71,
-        "branch_covered": 120,
+        "branch_pct": 35.42,
+        "branch_covered": 119,
         "branch_total": 336,
         "report": "Os/Posix/int-coverage/index.html",
         "tier": "bronze"
@@ -8096,8 +8096,8 @@
         "function_pct": 92.86,
         "function_covered": 26,
         "function_total": 28,
-        "branch_pct": 54.32,
-        "branch_covered": 44,
+        "branch_pct": 55.56,
+        "branch_covered": 45,
         "branch_total": 81,
         "report": "Svc/ComAggregator/int-coverage/index.html",
         "tier": "silver"
