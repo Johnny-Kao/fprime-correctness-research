@@ -3,7 +3,7 @@
   "ref": "devel",
   "ref_type": "branch",
   "commit": "77101cb40e05588d7d1e9f8ae73c88e74a01c32a",
-  "generated_at": "2026-11-21T02:09:31Z",
+  "generated_at": "2026-11-21T03:09:50Z",
   "thresholds": {
     "platinum": 95.0,
     "gold": 90.0,
@@ -24,13 +24,13 @@
   },
   "overall_int": {
     "line_pct": 33.39,
-    "line_covered": 10796,
+    "line_covered": 10794,
     "line_total": 32329,
     "function_pct": 42.02,
     "function_covered": 1845,
     "function_total": 4391,
-    "branch_pct": 22.18,
-    "branch_covered": 3784,
+    "branch_pct": 22.19,
+    "branch_covered": 3785,
     "branch_total": 17057,
     "report": "int-coverage/coverage-all.html",
     "tier": "bronze"
@@ -3324,8 +3324,8 @@
         "function_pct": 81.25,
         "function_covered": 26,
         "function_total": 32,
-        "branch_pct": 63.41,
-        "branch_covered": 26,
+        "branch_pct": 60.98,
+        "branch_covered": 25,
         "branch_total": 41,
         "report": "Fw/Comp/int-coverage/index.html",
         "tier": "bronze"
@@ -8727,14 +8727,14 @@
         "tier": "silver"
       },
       "int": {
-        "line_pct": 70.7,
-        "line_covered": 362,
+        "line_pct": 70.51,
+        "line_covered": 361,
         "line_total": 512,
         "function_pct": 80.56,
         "function_covered": 29,
         "function_total": 36,
-        "branch_pct": 58.92,
-        "branch_covered": 274,
+        "branch_pct": 58.71,
+        "branch_covered": 273,
         "branch_total": 465,
         "report": "Svc/DpCatalog/int-coverage/index.html",
         "tier": "bronze"
@@ -9971,8 +9971,8 @@
         "function_pct": 100.0,
         "function_covered": 7,
         "function_total": 7,
-        "branch_pct": 55.36,
-        "branch_covered": 31,
+        "branch_pct": 60.71,
+        "branch_covered": 34,
         "branch_total": 56,
         "report": "Svc/FprimeRouter/int-coverage/index.html",
         "tier": "bronze"
