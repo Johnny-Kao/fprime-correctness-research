@@ -37,7 +37,7 @@ File                                       Lines    Exec  Cover   Missing
 /home/runner/work/fprime-correctness-research/fprime-correctness-research/Fw/Types/StringToNumber.cpp
                                               65      27    41%   9,13,18,31,35-36,70-71,74-75,92,97,101,106,109,114,118,123,125,130,133,138,140,145,147,151-154,156-157,160,164-167,169-170
 /home/runner/work/fprime-correctness-research/fprime-correctness-research/Fw/Types/StringUtils.cpp
-                                              60      48    80%   10,24-26,29,52,57,73,82,96,101,106
+                                              60      49    81%   24-26,29,52,57,73,82,96,101,106
 ------------------------------------------------------------------------------
-TOTAL                                       1468     539    36%
+TOTAL                                       1468     540    36%
 ------------------------------------------------------------------------------
