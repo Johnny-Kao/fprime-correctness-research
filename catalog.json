@@ -3,7 +3,7 @@
   "ref": "devel",
   "ref_type": "branch",
   "commit": "77101cb40e05588d7d1e9f8ae73c88e74a01c32a",
-  "generated_at": "2026-11-23T01:38:20Z",
+  "generated_at": "2026-11-23T02:30:03Z",
   "thresholds": {
     "platinum": 95.0,
     "gold": 90.0,
@@ -23,14 +23,14 @@
     "tier": "silver"
   },
   "overall_int": {
-    "line_pct": 33.39,
-    "line_covered": 10795,
+    "line_pct": 33.38,
+    "line_covered": 10790,
     "line_total": 32329,
     "function_pct": 41.99,
     "function_covered": 1844,
     "function_total": 4391,
-    "branch_pct": 22.17,
-    "branch_covered": 3782,
+    "branch_pct": 22.18,
+    "branch_covered": 3784,
     "branch_total": 17057,
     "report": "int-coverage/coverage-all.html",
     "tier": "bronze"
@@ -4460,14 +4460,14 @@
         "tier": "silver"
       },
       "int": {
-        "line_pct": 41.53,
-        "line_covered": 103,
+        "line_pct": 41.13,
+        "line_covered": 102,
         "line_total": 248,
         "function_pct": 40.68,
         "function_covered": 24,
         "function_total": 59,
-        "branch_pct": 33.63,
-        "branch_covered": 38,
+        "branch_pct": 32.74,
+        "branch_covered": 37,
         "branch_total": 113,
         "report": "Fw/Time/int-coverage/index.html",
         "tier": "bronze"
@@ -4642,14 +4642,14 @@
         "tier": "bronze"
       },
       "int": {
-        "line_pct": 36.78,
-        "line_covered": 540,
+        "line_pct": 36.72,
+        "line_covered": 539,
         "line_total": 1468,
         "function_pct": 34.95,
         "function_covered": 101,
         "function_total": 289,
-        "branch_pct": 33.78,
-        "branch_covered": 152,
+        "branch_pct": 33.33,
+        "branch_covered": 150,
         "branch_total": 450,
         "report": "Fw/Types/int-coverage/index.html",
         "tier": "bronze"
@@ -4800,14 +4800,14 @@
         "tier": "bronze"
       },
       "int": {
-        "line_pct": 40.63,
-        "line_covered": 1381,
+        "line_pct": 40.6,
+        "line_covered": 1380,
         "line_total": 3399,
         "function_pct": 44.85,
         "function_covered": 261,
         "function_total": 582,
-        "branch_pct": 30.34,
-        "branch_covered": 446,
+        "branch_pct": 30.54,
+        "branch_covered": 449,
         "branch_total": 1470,
         "report": "Os/int-coverage/index.html",
         "tier": "bronze"
@@ -4964,8 +4964,8 @@
         "function_pct": 27.17,
         "function_covered": 25,
         "function_total": 92,
-        "branch_pct": 15.35,
-        "branch_covered": 74,
+        "branch_pct": 15.56,
+        "branch_covered": 75,
         "branch_total": 482,
         "report": "Os/Generic/int-coverage/index.html",
         "tier": "bronze"
@@ -5055,8 +5055,8 @@
         "function_pct": 44.44,
         "function_covered": 12,
         "function_total": 27,
-        "branch_pct": 20.43,
-        "branch_covered": 19,
+        "branch_pct": 21.51,
+        "branch_covered": 20,
         "branch_total": 93,
         "report": "Os/Generic/Types/int-coverage/index.html",
         "tier": "bronze"
@@ -5213,8 +5213,8 @@
         "function_pct": 66.67,
         "function_covered": 64,
         "function_total": 96,
-        "branch_pct": 35.42,
-        "branch_covered": 119,
+        "branch_pct": 36.01,
+        "branch_covered": 121,
         "branch_total": 336,
         "report": "Os/Posix/int-coverage/index.html",
         "tier": "bronze"
@@ -8727,14 +8727,14 @@
         "tier": "silver"
       },
       "int": {
-        "line_pct": 70.7,
-        "line_covered": 362,
+        "line_pct": 70.51,
+        "line_covered": 361,
         "line_total": 512,
         "function_pct": 80.56,
         "function_covered": 29,
         "function_total": 36,
-        "branch_pct": 58.92,
-        "branch_covered": 274,
+        "branch_pct": 58.71,
+        "branch_covered": 273,
         "branch_total": 465,
         "report": "Svc/DpCatalog/int-coverage/index.html",
         "tier": "bronze"
@@ -9971,8 +9971,8 @@
         "function_pct": 100.0,
         "function_covered": 7,
         "function_total": 7,
-        "branch_pct": 55.36,
-        "branch_covered": 31,
+        "branch_pct": 60.71,
+        "branch_covered": 34,
         "branch_total": 56,
         "report": "Svc/FprimeRouter/int-coverage/index.html",
         "tier": "bronze"
